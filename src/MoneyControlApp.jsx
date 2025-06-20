@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import React, { useState } from 'react';
-import { Plus, Minus, Calendar, ArrowLeft, Filter, X, Download, PieChart } from 'lucide-react';
+import { Plus, Minus, Calendar, ArrowLeft, Filter, X, Download, PieChart, HandHeart } from 'lucide-react';
 
 const MoneyControlApp = () => {
   const [currentView, setCurrentView] = useState('home');
@@ -24,7 +24,17 @@ const MoneyControlApp = () => {
     if (saved) {
       const parsed = JSON.parse(saved);
       setTransactions(parsed);
-      const balance = parsed.reduce((acc, t) => acc + (t.type === 'income' ? t.amount : -t.amount), 0);
+      const balance = parsed.reduce((acc, t) => {
+        if (t.type === 'income') {
+          return acc + t.amount;
+        } else if (t.type === 'expense') {
+          return acc - t.amount;
+        } else if (t.type === 'loan') {
+          // Los préstamos prestados reducen el balance, los abonos lo aumentan
+          return t.category === 'Prestado' ? acc - t.amount : acc + t.amount;
+        }
+        return acc;
+      }, 0);
       setBalance(balance);
     }
   }, []);
@@ -36,7 +46,8 @@ const MoneyControlApp = () => {
     category: '',
     customCategory: '',
     date: getCurrentDate(),
-    recipient: ''
+    recipient: '',
+    observations: ''
   });
 
   // Función para obtener la fecha actual en formato correcto
@@ -67,8 +78,8 @@ const MoneyControlApp = () => {
     }).format(amount);
   };
 
-  // Función para formatear moneda completa (para CSV)
-  const formatCurrencyFull = (amount) => {
+  // Función para formatear moneda compacta para móviles (números completos)
+  const formatCurrencyMobile = (amount) => {
     return new Intl.NumberFormat('es-PY', {
       style: 'currency',
       currency: 'PYG',
@@ -85,29 +96,39 @@ const MoneyControlApp = () => {
       return;
     }
 
-    const headers = ['Fecha', 'Tipo', 'Categoría', 'Monto', 'Destinatario'];
+    const headers = ['Fecha', 'Tipo', 'Categoría', 'Monto', 'Destinatario', 'Observaciones'];
     const csvData = [headers];
 
     filteredTransactions.forEach(transaction => {
+      let typeText = '';
+      if (transaction.type === 'income') typeText = 'Entrada';
+      else if (transaction.type === 'expense') typeText = 'Salida';
+      else if (transaction.type === 'loan') typeText = `Préstamo - ${transaction.category}`;
+
       csvData.push([
         formatDate(transaction.date),
-        transaction.type === 'income' ? 'Entrada' : 'Salida',
+        typeText,
         transaction.category,
-        formatCurrencyFull(transaction.amount),
-        transaction.recipient || ''
+        formatCurrency(transaction.amount),
+        transaction.recipient || '',
+        transaction.observations || ''
       ]);
     });
 
     // Agregar resumen al final
     const totalIncome = filteredTransactions.filter(t => t.type === 'income').reduce((sum, t) => sum + t.amount, 0);
     const totalExpense = filteredTransactions.filter(t => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0);
-    const netTotal = totalIncome - totalExpense;
+    const totalLoaned = filteredTransactions.filter(t => t.type === 'loan' && t.category === 'Prestado').reduce((sum, t) => sum + t.amount, 0);
+    const totalReturned = filteredTransactions.filter(t => t.type === 'loan' && t.category === 'Abono').reduce((sum, t) => sum + t.amount, 0);
+    const netTotal = totalIncome - totalExpense - totalLoaned + totalReturned;
 
     csvData.push([]);
     csvData.push(['RESUMEN']);
-    csvData.push(['Total Entradas', '', '', formatCurrencyFull(totalIncome), '']);
-    csvData.push(['Total Salidas', '', '', formatCurrencyFull(totalExpense), '']);
-    csvData.push(['Balance Neto', '', '', formatCurrencyFull(netTotal), '']);
+    csvData.push(['Total Entradas', '', '', formatCurrency(totalIncome), '', '']);
+    csvData.push(['Total Salidas', '', '', formatCurrency(totalExpense), '', '']);
+    csvData.push(['Total Prestado', '', '', formatCurrency(totalLoaned), '', '']);
+    csvData.push(['Total Devuelto', '', '', formatCurrency(totalReturned), '', '']);
+    csvData.push(['Balance Neto', '', '', formatCurrency(netTotal), '', '']);
 
     const csvContent = csvData.map(row => row.map(field => `"${field}"`).join(',')).join('\n');
     const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -121,17 +142,18 @@ const MoneyControlApp = () => {
     document.body.removeChild(link);
   };
 
-  // Función para obtener datos del gráfico de torta
+  // Función para obtener datos del gráfico de torta (incluye préstamos)
   const getChartData = () => {
     const filteredTransactions = getFilteredTransactions();
     const categoryTotals = {};
 
     filteredTransactions.forEach(transaction => {
-      if (transaction.type === 'expense') {
-        if (categoryTotals[transaction.category]) {
-          categoryTotals[transaction.category] += transaction.amount;
+      if (transaction.type === 'expense' || (transaction.type === 'loan' && transaction.category === 'Prestado')) {
+        const categoryName = transaction.type === 'loan' ? `Préstamo - ${transaction.category}` : transaction.category;
+        if (categoryTotals[categoryName]) {
+          categoryTotals[categoryName] += transaction.amount;
         } else {
-          categoryTotals[transaction.category] = transaction.amount;
+          categoryTotals[categoryName] = transaction.amount;
         }
       }
     });
@@ -207,6 +229,7 @@ const MoneyControlApp = () => {
 
   const incomeCategories = ['Transferencia', 'Depósito', 'Otros'];
   const expenseCategories = ['Transferencia', 'Giros', 'Extracción', 'Otros'];
+  const loanCategories = ['Prestado', 'Abono'];
 
   const resetForm = () => {
     setFormData({
@@ -215,7 +238,8 @@ const MoneyControlApp = () => {
       category: '',
       customCategory: '',
       date: getCurrentDate(),
-      recipient: ''
+      recipient: '',
+      observations: ''
     });
   };
 
@@ -234,6 +258,7 @@ const MoneyControlApp = () => {
     if (!formData.category) return false;
     if (formData.category === 'Otros' && !formData.customCategory.trim()) return false;
     if (formData.type === 'expense' && !formData.recipient.trim()) return false;
+    if (formData.type === 'loan' && !formData.observations.trim()) return false;
     if (!formData.date) return false;
     return true;
   };
@@ -253,7 +278,8 @@ const MoneyControlApp = () => {
               amount: amount,
               category: finalCategory,
               date: formData.date,
-              recipient: formData.recipient || null
+              recipient: formData.recipient || null,
+              observations: formData.observations || null
             }
           : t
       );
@@ -265,8 +291,10 @@ const MoneyControlApp = () => {
       updatedTransactions.forEach(t => {
         if (t.type === 'income') {
           newBalance += t.amount;
-        } else {
+        } else if (t.type === 'expense') {
           newBalance -= t.amount;
+        } else if (t.type === 'loan') {
+          newBalance += t.category === 'Prestado' ? -t.amount : t.amount;
         }
       });
       setBalance(newBalance);
@@ -280,7 +308,8 @@ const MoneyControlApp = () => {
         amount: amount,
         category: finalCategory,
         date: formData.date,
-        recipient: formData.recipient || null
+        recipient: formData.recipient || null,
+        observations: formData.observations || null
       };
 
       setTransactions([...transactions, newTransaction]);
@@ -288,8 +317,11 @@ const MoneyControlApp = () => {
       // Actualizar balance
       if (formData.type === 'income') {
         setBalance(balance + amount);
-      } else {
+      } else if (formData.type === 'expense') {
         setBalance(balance - amount);
+      } else if (formData.type === 'loan') {
+        // Prestado reduce el balance, Abono lo aumenta
+        setBalance(balance + (finalCategory === 'Prestado' ? -amount : amount));
       }
     }
 
@@ -302,14 +334,17 @@ const MoneyControlApp = () => {
     setFormData({
       type: transaction.type,
       amount: transaction.amount.toString(),
-      category: incomeCategories.includes(transaction.category) || expenseCategories.includes(transaction.category) 
+      category: transaction.type === 'loan' ? transaction.category :
+        (incomeCategories.includes(transaction.category) || expenseCategories.includes(transaction.category) 
         ? transaction.category 
-        : 'Otros',
-      customCategory: incomeCategories.includes(transaction.category) || expenseCategories.includes(transaction.category) 
-        ? '' 
-        : transaction.category,
+        : 'Otros'),
+      customCategory: transaction.type !== 'loan' && 
+        !incomeCategories.includes(transaction.category) && 
+        !expenseCategories.includes(transaction.category) 
+        ? transaction.category : '',
       date: transaction.date,
-      recipient: transaction.recipient || ''
+      recipient: transaction.recipient || '',
+      observations: transaction.observations || ''
     });
     setCurrentView('form');
   };
@@ -342,12 +377,13 @@ const MoneyControlApp = () => {
         return false;
       }
 
-      // Filtro por texto (busca en categoría y destinatario)
+      // Filtro por texto (busca en categoría, destinatario y observaciones)
       if (filters.text) {
         const searchText = filters.text.toLowerCase();
         const categoryMatch = transaction.category.toLowerCase().includes(searchText);
         const recipientMatch = transaction.recipient && transaction.recipient.toLowerCase().includes(searchText);
-        if (!categoryMatch && !recipientMatch) {
+        const observationsMatch = transaction.observations && transaction.observations.toLowerCase().includes(searchText);
+        if (!categoryMatch && !recipientMatch && !observationsMatch) {
           return false;
         }
       }
@@ -389,7 +425,7 @@ const MoneyControlApp = () => {
               <div className="text-center py-8 text-gray-500">
                 <PieChart size={48} className="mx-auto mb-2 opacity-50" />
                 <p>No hay datos de gastos para mostrar</p>
-                <p className="text-sm">Los gráficos muestran solo las salidas de dinero</p>
+                <p className="text-sm">Los gráficos muestran salidas de dinero y préstamos</p>
               </div>
             )}
           </div>
@@ -411,17 +447,17 @@ const MoneyControlApp = () => {
           </div>
 
           {/* Botones de acción */}
-          <div className="grid grid-cols-2 gap-4 mb-6">
+          <div className="grid grid-cols-3 gap-3 mb-6">
             <button
               onClick={() => {
                 resetForm();
                 setFormData(prev => ({...prev, type: 'income'}));
                 setCurrentView('form');
               }}
-              className="bg-green-500 text-white p-4 rounded-lg flex items-center justify-center gap-2 font-semibold"
+              className="bg-green-500 text-white p-3 rounded-lg flex flex-col items-center justify-center gap-1 font-semibold text-sm"
             >
-              <Plus size={20} />
-              Entrada
+              <Plus size={18} />
+              <span>Entrada</span>
             </button>
             <button
               onClick={() => {
@@ -429,10 +465,21 @@ const MoneyControlApp = () => {
                 setFormData(prev => ({...prev, type: 'expense'}));
                 setCurrentView('form');
               }}
-              className="bg-red-500 text-white p-4 rounded-lg flex items-center justify-center gap-2 font-semibold"
+              className="bg-red-500 text-white p-3 rounded-lg flex flex-col items-center justify-center gap-1 font-semibold text-sm"
             >
-              <Minus size={20} />
-              Salida
+              <Minus size={18} />
+              <span>Salida</span>
+            </button>
+            <button
+              onClick={() => {
+                resetForm();
+                setFormData(prev => ({...prev, type: 'loan'}));
+                setCurrentView('form');
+              }}
+              className="bg-orange-500 text-white p-3 rounded-lg flex flex-col items-center justify-center gap-1 font-semibold text-sm"
+            >
+              <HandHeart size={18} />
+              <span>Préstamo</span>
             </button>
           </div>
 
@@ -459,28 +506,45 @@ const MoneyControlApp = () => {
               ) : (
                 transactions.slice().reverse().slice(0, 5).map((transaction) => (
                   <div key={transaction.id} className="p-4 border-b last:border-b-0">
-                    <div className="flex justify-between items-start">
-                      <div className="flex-1">
+                    <div className="flex justify-between items-start gap-2">
+                      <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
-                          <div className={`w-3 h-3 rounded-full ${
-                            transaction.type === 'income' ? 'bg-green-500' : 'bg-red-500'
+                          <div className={`w-3 h-3 rounded-full flex-shrink-0 ${
+                            transaction.type === 'income' ? 'bg-green-500' : 
+                            transaction.type === 'expense' ? 'bg-red-500' : 'bg-orange-500'
                           }`}></div>
-                          <span className="font-medium">{transaction.category}</span>
+                          <span className="font-medium text-sm truncate">{transaction.category}</span>
+                          {transaction.type === 'loan' && (
+                            <span className={`px-2 py-1 text-xs rounded-full flex-shrink-0 ${
+                              transaction.category === 'Prestado' 
+                                ? 'bg-orange-100 text-orange-800' 
+                                : 'bg-green-100 text-green-800'
+                            }`}>
+                              {transaction.category}
+                            </span>
+                          )}
                         </div>
-                        <div className="text-sm text-gray-600">
+                        <div className="text-xs text-gray-600">
                           {formatDate(transaction.date)}
                         </div>
                         {transaction.recipient && (
-                          <div className="text-sm text-gray-600">
+                          <div className="text-xs text-gray-600 truncate">
                             Para: {transaction.recipient}
                           </div>
                         )}
+                        {transaction.observations && (
+                          <div className="text-xs text-gray-600 truncate">
+                            {transaction.observations}
+                          </div>
+                        )}
                       </div>
-                      <div className="text-right">
-                        <div className={`font-bold ${
-                          transaction.type === 'income' ? 'text-green-600' : 'text-red-600'
+                      <div className="text-right flex-shrink-0 min-w-0">
+                        <div className={`font-bold text-xs leading-tight break-all ${
+                          transaction.type === 'income' ? 'text-green-600' : 
+                          transaction.type === 'expense' ? 'text-red-600' :
+                          transaction.category === 'Prestado' ? 'text-orange-600' : 'text-green-600'
                         }`}>
-                          {transaction.type === 'income' ? '+' : '-'}{formatCurrency(transaction.amount)}
+                          {transaction.type === 'income' ? '+' : '-'}{formatCurrencyMobile(transaction.amount)}
                         </div>
                         <button
                           onClick={() => handleEdit(transaction)}
@@ -506,7 +570,9 @@ const MoneyControlApp = () => {
     const hasActiveFilters = Object.values(filters).some(value => value !== '');
     const totalIncome = filteredTransactions.filter(t => t.type === 'income').reduce((sum, t) => sum + t.amount, 0);
     const totalExpense = filteredTransactions.filter(t => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0);
-    const netTotal = totalIncome - totalExpense;
+    const totalLoaned = filteredTransactions.filter(t => t.type === 'loan' && t.category === 'Prestado').reduce((sum, t) => sum + t.amount, 0);
+    const totalReturned = filteredTransactions.filter(t => t.type === 'loan' && t.category === 'Abono').reduce((sum, t) => sum + t.amount, 0);
+    const netTotal = totalIncome - totalExpense - totalLoaned + totalReturned;
 
     return (
       <div className="min-h-screen bg-gray-50 p-4">
@@ -592,6 +658,7 @@ const MoneyControlApp = () => {
                     <option value="">Todos</option>
                     <option value="income">Entradas</option>
                     <option value="expense">Salidas</option>
+                    <option value="loan">Préstamos</option>
                   </select>
                 </div>
 
@@ -617,7 +684,7 @@ const MoneyControlApp = () => {
                     type="text"
                     value={filters.text}
                     onChange={(e) => setFilters({...filters, text: e.target.value})}
-                    placeholder="Buscar en categorías y destinatarios..."
+                    placeholder="Buscar en categorías, destinatarios y observaciones..."
                     className="w-full p-2 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500"
                   />
                 </div>
@@ -625,25 +692,39 @@ const MoneyControlApp = () => {
             </div>
           )}
 
-          {/* Resumen con mejor formato para números grandes */}
-          <div className="bg-white rounded-lg shadow-sm p-4 mb-4">
-            <div className="grid grid-cols-3 gap-2 text-center">
-              <div className="px-1">
+          {/* Resumen mejorado con préstamos */}
+          <div className="bg-white rounded-lg shadow-sm p-3 mb-4">
+            <div className="grid grid-cols-2 gap-2 text-center mb-3">
+              <div className="min-w-0">
                 <div className="text-xs text-gray-600 mb-1">Total</div>
-                <div className="font-bold text-blue-600 text-sm break-all">
-                  {formatCurrency(netTotal)}
+                <div className="font-bold text-blue-600 text-xs leading-tight break-all">
+                  {formatCurrencyMobile(netTotal)}
                 </div>
               </div>
-              <div className="px-1">
+              <div className="min-w-0">
                 <div className="text-xs text-gray-600 mb-1">Entradas</div>
-                <div className="font-bold text-green-600 text-sm break-all">
-                  {formatCurrency(totalIncome)}
+                <div className="font-bold text-green-600 text-xs leading-tight break-all">
+                  {formatCurrencyMobile(totalIncome)}
                 </div>
               </div>
-              <div className="px-1">
+            </div>
+            <div className="grid grid-cols-3 gap-1 text-center">
+              <div className="min-w-0">
                 <div className="text-xs text-gray-600 mb-1">Salidas</div>
-                <div className="font-bold text-red-600 text-sm break-all">
-                  {formatCurrency(totalExpense)}
+                <div className="font-bold text-red-600 text-xs leading-tight break-all">
+                  {formatCurrencyMobile(totalExpense)}
+                </div>
+              </div>
+              <div className="min-w-0">
+                <div className="text-xs text-gray-600 mb-1">Pendiente</div>
+                <div className="font-bold text-orange-600 text-xs leading-tight break-all">
+                  {formatCurrencyMobile(totalLoaned - totalReturned)}
+                </div>
+              </div>
+              <div className="min-w-0">
+                <div className="text-xs text-gray-600 mb-1">Devuelto</div>
+                <div className="font-bold text-green-600 text-xs leading-tight break-all">
+                  {formatCurrencyMobile(totalReturned)}
                 </div>
               </div>
             </div>
@@ -664,36 +745,51 @@ const MoneyControlApp = () => {
               ) : (
                 filteredTransactions.slice().reverse().map((transaction) => (
                   <div key={transaction.id} className="p-4 border-b last:border-b-0">
-                    <div className="flex justify-between items-start mb-2">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                          <div className={`w-3 h-3 rounded-full ${
-                            transaction.type === 'income' ? 'bg-green-500' : 'bg-red-500'
+                    <div className="flex justify-between items-start gap-2 mb-2">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
+                          <div className={`w-3 h-3 rounded-full flex-shrink-0 ${
+                            transaction.type === 'income' ? 'bg-green-500' : 
+                            transaction.type === 'expense' ? 'bg-red-500' : 'bg-orange-500'
                           }`}></div>
-                          <span className="font-medium">{transaction.category}</span>
-                          <span className={`px-2 py-1 text-xs rounded-full ${
+                          <span className="font-medium text-sm">{transaction.category}</span>
+                          <span className={`px-2 py-1 text-xs rounded-full flex-shrink-0 ${
                             transaction.type === 'income' 
                               ? 'bg-green-100 text-green-800' 
-                              : 'bg-red-100 text-red-800'
+                              : transaction.type === 'expense'
+                              ? 'bg-red-100 text-red-800'
+                              : transaction.category === 'Prestado'
+                              ? 'bg-orange-100 text-orange-800'
+                              : 'bg-green-100 text-green-800'
                           }`}>
-                            {transaction.type === 'income' ? 'Entrada' : 'Salida'}
+                            {transaction.type === 'income' ? 'Entrada' : 
+                             transaction.type === 'expense' ? 'Salida' : 
+                             transaction.category}
                           </span>
                         </div>
                         <div className="text-sm text-gray-600 space-y-1">
                           <div>📅 {formatDate(transaction.date)}</div>
                           {transaction.recipient && (
-                            <div>👤 Para: {transaction.recipient}</div>
+                            <div className="break-words">👤 Para: {transaction.recipient}</div>
                           )}
-                          <div>💰 Monto: <span className={`font-semibold ${
-                            transaction.type === 'income' ? 'text-green-600' : 'text-red-600'
-                          }`}>
-                            {transaction.type === 'income' ? '+' : '-'}{formatCurrency(transaction.amount)}
-                          </span></div>
+                          {transaction.observations && (
+                            <div className="break-words">💭 {transaction.observations}</div>
+                          )}
+                          <div className="flex items-center gap-2">
+                            <span>💰 Monto:</span>
+                            <span className={`font-semibold text-xs break-all ${
+                              transaction.type === 'income' ? 'text-green-600' : 
+                              transaction.type === 'expense' ? 'text-red-600' :
+                              transaction.category === 'Prestado' ? 'text-orange-600' : 'text-green-600'
+                            }`}>
+                              {(transaction.type === 'expense' || (transaction.type === 'loan' && transaction.category === 'Prestado')) ? '-' : '+'}{formatCurrencyMobile(transaction.amount)}
+                            </span>
+                          </div>
                         </div>
                       </div>
                       <button
                         onClick={() => handleEdit(transaction)}
-                        className="px-3 py-1 text-sm bg-blue-500 text-white rounded-lg hover:bg-blue-600"
+                        className="px-3 py-1 text-sm bg-blue-500 text-white rounded-lg hover:bg-blue-600 flex-shrink-0"
                       >
                         Editar
                       </button>
@@ -727,7 +823,10 @@ const MoneyControlApp = () => {
             <ArrowLeft size={20} />
           </button>
           <h1 className="text-xl font-bold">
-            {editingId ? 'Editar' : 'Nueva'} {formData.type === 'income' ? 'Entrada' : 'Salida'}
+            {editingId ? 'Editar' : 'Nueva'} {
+              formData.type === 'income' ? 'Entrada' : 
+              formData.type === 'expense' ? 'Salida' : 'Préstamo'
+            }
           </h1>
         </div>
 
@@ -750,15 +849,17 @@ const MoneyControlApp = () => {
           {/* Categoría */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
-              Categoría *
+              {formData.type === 'loan' ? 'Motivo *' : 'Categoría *'}
             </label>
             <select
               value={formData.category}
               onChange={(e) => setFormData({...formData, category: e.target.value, customCategory: ''})}
               className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
             >
-              <option value="">Seleccionar categoría</option>
-              {(formData.type === 'income' ? incomeCategories : expenseCategories).map((cat) => (
+              <option value="">{formData.type === 'loan' ? 'Seleccionar motivo' : 'Seleccionar categoría'}</option>
+              {(formData.type === 'income' ? incomeCategories : 
+                formData.type === 'expense' ? expenseCategories : 
+                loanCategories).map((cat) => (
                 <option key={cat} value={cat}>{cat}</option>
               ))}
             </select>
@@ -792,6 +893,27 @@ const MoneyControlApp = () => {
                 onChange={(e) => setFormData({...formData, recipient: e.target.value})}
                 placeholder="Nombre del destinatario"
                 className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              />
+            </div>
+          )}
+
+          {/* Observaciones para préstamos */}
+          {formData.type === 'loan' && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                {formData.category === 'Prestado' ? 'Observaciones del préstamo *' : 
+                 formData.category === 'Abono' ? 'Observaciones del abono *' : 'Observaciones *'}
+              </label>
+              <textarea
+                value={formData.observations}
+                onChange={(e) => setFormData({...formData, observations: e.target.value})}
+                placeholder={
+                  formData.category === 'Prestado' ? 'Especificar a quién se le prestó y motivo...' :
+                  formData.category === 'Abono' ? 'Especificar de quién viene la devolución...' :
+                  'Escribir observaciones...'
+                }
+                rows={3}
+                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
               />
             </div>
           )}
@@ -833,7 +955,9 @@ const MoneyControlApp = () => {
                 isFormValid()
                   ? formData.type === 'income' 
                     ? 'bg-green-500 hover:bg-green-600' 
-                    : 'bg-red-500 hover:bg-red-600'
+                    : formData.type === 'expense'
+                    ? 'bg-red-500 hover:bg-red-600'
+                    : 'bg-orange-500 hover:bg-orange-600'
                   : 'bg-gray-400 cursor-not-allowed'
               }`}
             >
