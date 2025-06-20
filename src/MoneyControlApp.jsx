@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import React, { useState } from 'react';
-import { Plus, Minus, Calendar, ArrowLeft, Filter, X, Download, PieChart, HandHeart } from 'lucide-react';
+import { Plus, Minus, Calendar, ArrowLeft, Filter, X, Download, PieChart, DollarSign } from 'lucide-react';
 
 const MoneyControlApp = () => {
   const [currentView, setCurrentView] = useState('home');
@@ -478,7 +478,7 @@ const MoneyControlApp = () => {
               }}
               className="bg-orange-500 text-white p-3 rounded-lg flex flex-col items-center justify-center gap-1 font-semibold text-sm"
             >
-              <HandHeart size={18} />
+              <DollarSign size={18} />
               <span>Préstamo</span>
             </button>
           </div>
