@@ -1,331 +1,270 @@
-import { useEffect } from 'react';
 import React, { useState } from 'react';
-import { Plus, Minus, Calendar, ArrowLeft, Filter, X, Download, PieChart, DollarSign } from 'lucide-react';
+import { Plus, Minus, DollarSign, Moon, Sun } from 'lucide-react';
 
 const MoneyControlApp = () => {
-  const [currentView, setCurrentView] = useState('home');
-  const [transactions, setTransactions] = useState([]);
-  const [balance, setBalance] = useState(0);
-  const [editingId, setEditingId] = useState(null);
-  const [showFilters, setShowFilters] = useState(false);
+  // Funciones utilitarias
+  const getTodayDate = () => {
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = String(today.getMonth() + 1).padStart(2, '0');
+    const day = String(today.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  };
 
-  // Estados para filtros
-  const [filters, setFilters] = useState({
-    dateFrom: '',
-    dateTo: '',
-    category: '',
-    text: '',
-    type: ''
-  });
+  const formatDisplayDate = (dateString) => {
+    const [year, month, day] = dateString.split('-');
+    const date = new Date(year, month - 1, day);
+    return date.toLocaleDateString('es-PY', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit'
+    });
+  };
 
-  
-  useEffect(() => {
-    const saved = localStorage.getItem('transactions');
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      setTransactions(parsed);
-      const balance = parsed.reduce((acc, t) => {
-        if (t.type === 'income') {
-          return acc + t.amount;
-        } else if (t.type === 'expense') {
-          return acc - t.amount;
-        } else if (t.type === 'loan') {
-          // Los préstamos prestados reducen el balance, los abonos lo aumentan
-          return t.category === 'Prestado' ? acc - t.amount : acc + t.amount;
-        }
-        return acc;
-      }, 0);
-      setBalance(balance);
+  const formatCurrency = (amount) => {
+    return '₲ ' + amount.toLocaleString();
+  };
+
+  // Funciones para localStorage
+  const saveToStorage = (key, data) => {
+    try {
+      localStorage.setItem(key, JSON.stringify(data));
+    } catch (error) {
+      console.error('Error guardando en localStorage:', error);
     }
-  }, []);
+  };
 
-  // Estados para el formulario
-  const [formData, setFormData] = useState({
+  const loadFromStorage = (key, defaultValue) => {
+    try {
+      const saved = localStorage.getItem(key);
+      return saved ? JSON.parse(saved) : defaultValue;
+    } catch (error) {
+      console.error('Error cargando de localStorage:', error);
+      return defaultValue;
+    }
+  };
+
+  // Estados principales
+  const [isDark, setIsDark] = useState(() => loadFromStorage('isDark', false));
+  const [currentView, setCurrentView] = useState('home');
+  const [editingId, setEditingId] = useState(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
+  const [filters, setFilters] = useState({
+    startDate: '',
+    endDate: '',
     type: '',
+    category: ''
+  });
+  const [selectedMonth, setSelectedMonth] = useState('2025-06');
+
+  // Categorías personalizables
+  const [customCategories, setCustomCategories] = useState(() => 
+    loadFromStorage('customCategories', {
+      income: ['Salario', 'Venta', 'Freelance', 'Inversión', 'Regalo'],
+      expense: ['Comida', 'Transporte', 'Giros', 'Entretenimiento', 'Salud'],
+      loan: ['Prestado', 'Abono', 'Devolución']
+    })
+  );
+
+  const [newCategoryName, setNewCategoryName] = useState('');
+  const [categoryTypeToEdit, setCategoryTypeToEdit] = useState('income');
+
+  const [formData, setFormData] = useState({
+    type: 'income',
     amount: '',
     category: '',
-    customCategory: '',
-    date: getCurrentDate(),
-    recipient: '',
+    date: getTodayDate(),
     observations: ''
   });
 
-  // Función para obtener la fecha actual en formato correcto
-  function getCurrentDate() {
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, '0');
-    const day = String(now.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  }
-
-  // Función mejorada para formatear fecha
-  const formatDate = (dateString) => {
-    const date = new Date(dateString + 'T00:00:00');
-    return date.toLocaleDateString('es-PY', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric'
-    });
-  };
-
-  // Función para formatear moneda completa (sin abreviaciones)
-  const formatCurrency = (amount) => {
-    return new Intl.NumberFormat('es-PY', {
-      style: 'currency',
-      currency: 'PYG',
-      minimumFractionDigits: 0
-    }).format(amount);
-  };
-
-  // Función para formatear moneda compacta para móviles (números completos)
-  const formatCurrencyMobile = (amount) => {
-    return new Intl.NumberFormat('es-PY', {
-      style: 'currency',
-      currency: 'PYG',
-      minimumFractionDigits: 0
-    }).format(amount);
-  };
-
-  // Función para descargar CSV
-  const downloadCSV = () => {
-    const filteredTransactions = getFilteredTransactions();
-    
-    if (filteredTransactions.length === 0) {
-      alert('No hay transacciones para exportar');
-      return;
-    }
-
-    const headers = ['Fecha', 'Tipo', 'Categoría', 'Monto', 'Destinatario', 'Observaciones'];
-    const csvData = [headers];
-
-    filteredTransactions.forEach(transaction => {
-      let typeText = '';
-      if (transaction.type === 'income') typeText = 'Entrada';
-      else if (transaction.type === 'expense') typeText = 'Salida';
-      else if (transaction.type === 'loan') typeText = `Préstamo - ${transaction.category}`;
-
-      csvData.push([
-        formatDate(transaction.date),
-        typeText,
-        transaction.category,
-        formatCurrency(transaction.amount),
-        transaction.recipient || '',
-        transaction.observations || ''
-      ]);
-    });
-
-    // Agregar resumen al final
-    const totalIncome = filteredTransactions.filter(t => t.type === 'income').reduce((sum, t) => sum + t.amount, 0);
-    const totalExpense = filteredTransactions.filter(t => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0);
-    const totalLoaned = filteredTransactions.filter(t => t.type === 'loan' && t.category === 'Prestado').reduce((sum, t) => sum + t.amount, 0);
-    const totalReturned = filteredTransactions.filter(t => t.type === 'loan' && t.category === 'Abono').reduce((sum, t) => sum + t.amount, 0);
-    const netTotal = totalIncome - totalExpense - totalLoaned + totalReturned;
-
-    csvData.push([]);
-    csvData.push(['RESUMEN']);
-    csvData.push(['Total Entradas', '', '', formatCurrency(totalIncome), '', '']);
-    csvData.push(['Total Salidas', '', '', formatCurrency(totalExpense), '', '']);
-    csvData.push(['Total Prestado', '', '', formatCurrency(totalLoaned), '', '']);
-    csvData.push(['Total Devuelto', '', '', formatCurrency(totalReturned), '', '']);
-    csvData.push(['Balance Neto', '', '', formatCurrency(netTotal), '', '']);
-
-    const csvContent = csvData.map(row => row.map(field => `"${field}"`).join(',')).join('\n');
-    const blob = new Blob(['\ufeff' + csvContent], { type: 'text/csv;charset=utf-8;' });
-    const link = document.createElement('a');
-    const url = URL.createObjectURL(blob);
-    link.setAttribute('href', url);
-    link.setAttribute('download', `movimientos_${new Date().toISOString().split('T')[0]}.csv`);
-    link.style.visibility = 'hidden';
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  // Función para obtener datos del gráfico de torta (incluye préstamos)
-  const getChartData = () => {
-    const filteredTransactions = getFilteredTransactions();
-    const categoryTotals = {};
-
-    filteredTransactions.forEach(transaction => {
-      if (transaction.type === 'expense' || (transaction.type === 'loan' && transaction.category === 'Prestado')) {
-        const categoryName = transaction.type === 'loan' ? `Préstamo - ${transaction.category}` : transaction.category;
-        if (categoryTotals[categoryName]) {
-          categoryTotals[categoryName] += transaction.amount;
-        } else {
-          categoryTotals[categoryName] = transaction.amount;
-        }
+  const [transactions, setTransactions] = useState(() => 
+    loadFromStorage('transactions', [
+      {
+        id: 1,
+        type: 'income',
+        amount: 5000000,
+        category: 'Salario',
+        date: '2025-06-15',
+        observations: 'Salario mensual'
+      },
+      {
+        id: 2,
+        type: 'expense',
+        amount: 150000,
+        category: 'Comida',
+        date: '2025-06-20',
+        observations: 'Supermercado'
+      },
+      {
+        id: 3,
+        type: 'expense',
+        amount: 500000,
+        category: 'Transporte',
+        date: '2025-06-18',
+        observations: 'Combustible'
+      },
+      {
+        id: 4,
+        type: 'loan',
+        amount: 200000,
+        category: 'Prestado',
+        date: '2025-06-10',
+        observations: 'Préstamo a Juan'
+      },
+      {
+        id: 5,
+        type: 'loan',
+        amount: 50000,
+        category: 'Abono',
+        date: '2025-06-21',
+        observations: 'Abono de Juan'
       }
-    });
+    ])
+  );
 
-    return Object.entries(categoryTotals).map(([category, amount]) => ({
-      name: category,
-      value: amount,
-      percentage: ((amount / Object.values(categoryTotals).reduce((a, b) => a + b, 0)) * 100).toFixed(1)
-    }));
+  const [balance, setBalance] = useState(() => {
+    const savedBalance = loadFromStorage('balance', null);
+    if (savedBalance !== null) return savedBalance;
+    
+    // Calcular balance inicial desde transacciones
+    const initialTransactions = [
+      { id: 1, type: 'income', amount: 5000000, category: 'Salario', date: '2025-06-15', observations: 'Salario mensual' },
+      { id: 2, type: 'expense', amount: 150000, category: 'Comida', date: '2025-06-20', observations: 'Supermercado' },
+      { id: 3, type: 'expense', amount: 500000, category: 'Transporte', date: '2025-06-18', observations: 'Combustible' },
+      { id: 4, type: 'loan', amount: 200000, category: 'Prestado', date: '2025-06-10', observations: 'Préstamo a Juan' },
+      { id: 5, type: 'loan', amount: 50000, category: 'Abono', date: '2025-06-21', observations: 'Abono de Juan' }
+    ];
+    
+    return initialTransactions.reduce((acc, t) => {
+      if (t.type === 'income') return acc + t.amount;
+      if (t.type === 'expense') return acc - t.amount;
+      if (t.type === 'loan') {
+        if (t.category === 'Prestado') return acc - t.amount;
+        if (t.category === 'Abono' || t.category === 'Devolución') return acc + t.amount;
+      }
+      return acc;
+    }, 0);
+  });
+
+  // Funciones principales
+  const toggleDarkMode = () => {
+    const newDarkMode = !isDark;
+    setIsDark(newDarkMode);
+    saveToStorage('isDark', newDarkMode);
   };
 
-  // Componente simple para el gráfico de torta
-  const SimpleChart = ({ data }) => {
-    const total = data.reduce((sum, item) => sum + item.value, 0);
-    let currentAngle = 0;
-    const COLORS = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#8b5cf6', '#ec4899', '#06b6d4'];
-
-    const createPath = (centerX, centerY, radius, startAngle, endAngle) => {
-      const start = polarToCartesian(centerX, centerY, radius, endAngle);
-      const end = polarToCartesian(centerX, centerY, radius, startAngle);
-      const largeArcFlag = endAngle - startAngle <= 180 ? "0" : "1";
-      return `M ${centerX} ${centerY} L ${start.x} ${start.y} A ${radius} ${radius} 0 ${largeArcFlag} 0 ${end.x} ${end.y} Z`;
+  // Funciones para manejar categorías personalizadas
+  const addCustomCategory = () => {
+    if (!newCategoryName.trim()) return;
+    
+    const updatedCategories = {
+      ...customCategories,
+      [categoryTypeToEdit]: [...customCategories[categoryTypeToEdit], newCategoryName.trim()]
     };
+    
+    setCustomCategories(updatedCategories);
+    saveToStorage('customCategories', updatedCategories);
+    setNewCategoryName('');
+  };
 
-    const polarToCartesian = (centerX, centerY, radius, angleInDegrees) => {
-      const angleInRadians = (angleInDegrees - 90) * Math.PI / 180.0;
-      return {
-        x: centerX + (radius * Math.cos(angleInRadians)),
-        y: centerY + (radius * Math.sin(angleInRadians))
-      };
+  const removeCustomCategory = (type, categoryToRemove) => {
+    const updatedCategories = {
+      ...customCategories,
+      [type]: customCategories[type].filter(cat => cat !== categoryToRemove)
     };
-
-    return (
-      <div className="space-y-4">
-        <svg width="300" height="300" className="mx-auto">
-          {data.map((item, index) => {
-            const angle = (item.value / total) * 360;
-            const path = createPath(150, 150, 120, currentAngle, currentAngle + angle);
-            currentAngle += angle;
-            
-            return (
-              <path
-                key={index}
-                d={path}
-                fill={COLORS[index % COLORS.length]}
-                stroke="white"
-                strokeWidth="2"
-              />
-            );
-          })}
-        </svg>
-        
-        {/* Leyenda */}
-        <div className="space-y-2">
-          {data.map((entry, index) => (
-            <div key={entry.name} className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <div 
-                  className="w-4 h-4 rounded"
-                  style={{ backgroundColor: COLORS[index % COLORS.length] }}
-                ></div>
-                <span className="text-sm">{entry.name}</span>
-              </div>
-              <div className="text-sm font-medium">
-                {entry.percentage}% ({formatCurrency(entry.value)})
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
-    );
-  };
-
-  const incomeCategories = ['Transferencia', 'Depósito', 'Otros'];
-  const expenseCategories = ['Transferencia', 'Giros', 'Extracción', 'Otros'];
-  const loanCategories = ['Prestado', 'Abono'];
-
-  const resetForm = () => {
-    setFormData({
-      type: '',
-      amount: '',
-      category: '',
-      customCategory: '',
-      date: getCurrentDate(),
-      recipient: '',
-      observations: ''
-    });
-  };
-
-  const resetFilters = () => {
-    setFilters({
-      dateFrom: '',
-      dateTo: '',
-      category: '',
-      text: '',
-      type: ''
-    });
-  };
-
-  const isFormValid = () => {
-    if (!formData.amount || parseFloat(formData.amount) <= 0) return false;
-    if (!formData.category) return false;
-    if (formData.category === 'Otros' && !formData.customCategory.trim()) return false;
-    if (formData.type === 'expense' && !formData.recipient.trim()) return false;
-    if (formData.type === 'loan' && !formData.observations.trim()) return false;
-    if (!formData.date) return false;
-    return true;
+    
+    setCustomCategories(updatedCategories);
+    saveToStorage('customCategories', updatedCategories);
   };
 
   const handleSubmit = () => {
-    if (!isFormValid()) return;
-
+    if (!formData.amount || !formData.category || !formData.observations.trim()) return;
+    
     const amount = parseFloat(formData.amount);
-    const finalCategory = formData.category === 'Otros' ? formData.customCategory : formData.category;
     
     if (editingId) {
-      // Editando transacción existente
+      // Editar transacción existente
+      const oldTransaction = transactions.find(t => t.id === editingId);
       const updatedTransactions = transactions.map(t => 
-        t.id === editingId 
-          ? {
-              ...t,
-              amount: amount,
-              category: finalCategory,
-              date: formData.date,
-              recipient: formData.recipient || null,
-              observations: formData.observations || null
-            }
-          : t
+        t.id === editingId ? {...formData, id: editingId, amount: amount} : t
       );
-      
       setTransactions(updatedTransactions);
+      saveToStorage('transactions', updatedTransactions);
       
-      // Recalcular balance
-      let newBalance = 0;
-      updatedTransactions.forEach(t => {
-        if (t.type === 'income') {
-          newBalance += t.amount;
-        } else if (t.type === 'expense') {
-          newBalance -= t.amount;
-        } else if (t.type === 'loan') {
-          newBalance += t.category === 'Prestado' ? -t.amount : t.amount;
+      // Calcular nuevo balance
+      let newBalance = balance;
+      
+      // Revertir el efecto de la transacción anterior
+      if (oldTransaction.type === 'income') {
+        newBalance -= oldTransaction.amount;
+      } else if (oldTransaction.type === 'expense') {
+        newBalance += oldTransaction.amount;
+      } else if (oldTransaction.type === 'loan') {
+        if (oldTransaction.category === 'Prestado') {
+          newBalance += oldTransaction.amount;
+        } else if (oldTransaction.category === 'Abono' || oldTransaction.category === 'Devolución') {
+          newBalance -= oldTransaction.amount;
         }
-      });
+      }
+
+      // Aplicar el efecto de la nueva transacción
+      if (formData.type === 'income') {
+        newBalance += amount;
+      } else if (formData.type === 'expense') {
+        newBalance -= amount;
+      } else if (formData.type === 'loan') {
+        if (formData.category === 'Prestado') {
+          newBalance -= amount;
+        } else if (formData.category === 'Abono' || formData.category === 'Devolución') {
+          newBalance += amount;
+        }
+      }
+
       setBalance(newBalance);
-      
+      saveToStorage('balance', newBalance);
       setEditingId(null);
     } else {
-      // Nueva transacción
+      // Crear nueva transacción
       const newTransaction = {
         id: Date.now(),
         type: formData.type,
         amount: amount,
-        category: finalCategory,
+        category: formData.category,
         date: formData.date,
-        recipient: formData.recipient || null,
-        observations: formData.observations || null
+        observations: formData.observations
       };
 
-      setTransactions([...transactions, newTransaction]);
+      const updatedTransactions = [...transactions, newTransaction];
+      setTransactions(updatedTransactions);
+      saveToStorage('transactions', updatedTransactions);
       
-      // Actualizar balance
-      if (formData.type === 'income') {
-        setBalance(balance + amount);
-      } else if (formData.type === 'expense') {
-        setBalance(balance - amount);
-      } else if (formData.type === 'loan') {
-        // Prestado reduce el balance, Abono lo aumenta
-        setBalance(balance + (finalCategory === 'Prestado' ? -amount : amount));
+      let newBalance = balance;
+      if (newTransaction.type === 'income') {
+        newBalance = balance + amount;
+      } else if (newTransaction.type === 'expense') {
+        newBalance = balance - amount;
+      } else if (newTransaction.type === 'loan') {
+        if (newTransaction.category === 'Prestado') {
+          newBalance = balance - amount;
+        } else if (newTransaction.category === 'Abono' || newTransaction.category === 'Devolución') {
+          newBalance = balance + amount;
+        }
       }
+
+      setBalance(newBalance);
+      saveToStorage('balance', newBalance);
     }
 
-    resetForm();
+    // Limpiar formulario y regresar al home
+    setFormData({
+      type: 'income',
+      amount: '',
+      category: '',
+      date: getTodayDate(),
+      observations: ''
+    });
+    
     setCurrentView('home');
   };
 
@@ -334,98 +273,427 @@ const MoneyControlApp = () => {
     setFormData({
       type: transaction.type,
       amount: transaction.amount.toString(),
-      category: transaction.type === 'loan' ? transaction.category :
-        (incomeCategories.includes(transaction.category) || expenseCategories.includes(transaction.category) 
-        ? transaction.category 
-        : 'Otros'),
-      customCategory: transaction.type !== 'loan' && 
-        !incomeCategories.includes(transaction.category) && 
-        !expenseCategories.includes(transaction.category) 
-        ? transaction.category : '',
+      category: transaction.category,
       date: transaction.date,
-      recipient: transaction.recipient || '',
       observations: transaction.observations || ''
     });
     setCurrentView('form');
   };
 
-  
-  useEffect(() => {
-    localStorage.setItem('transactions', JSON.stringify(transactions));
-  }, [transactions]);
+  const handleDelete = () => {
+    const transactionToDelete = transactions.find(t => t.id === editingId);
+    if (!transactionToDelete) return;
 
-  // Función para filtrar transacciones
+    let newBalance = balance;
+    if (transactionToDelete.type === 'income') {
+      newBalance = balance - transactionToDelete.amount;
+    } else if (transactionToDelete.type === 'expense') {
+      newBalance = balance + transactionToDelete.amount;
+    } else if (transactionToDelete.type === 'loan') {
+      if (transactionToDelete.category === 'Prestado') {
+        newBalance = balance + transactionToDelete.amount;
+      } else if (transactionToDelete.category === 'Abono' || transactionToDelete.category === 'Devolución') {
+        newBalance = balance - transactionToDelete.amount;
+      }
+    }
+
+    const updatedTransactions = transactions.filter(t => t.id !== editingId);
+    setTransactions(updatedTransactions);
+    setBalance(newBalance);
+    
+    saveToStorage('transactions', updatedTransactions);
+    saveToStorage('balance', newBalance);
+    
+    setEditingId(null);
+    setShowDeleteConfirm(false);
+    setCurrentView('home');
+  };
+
+  const getMonthlyData = (monthYear) => {
+    const monthTransactions = transactions.filter(t => t.date.startsWith(monthYear));
+    
+    const income = monthTransactions.filter(t => t.type === 'income').reduce((sum, t) => sum + t.amount, 0);
+    const expense = monthTransactions.filter(t => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0);
+    const loans = monthTransactions.filter(t => t.type === 'loan').reduce((sum, t) => sum + t.amount, 0);
+    
+    return {
+      transactions: monthTransactions,
+      income,
+      expense,
+      loans,
+      net: income - expense - loans,
+      total: monthTransactions.length
+    };
+  };
+
+  const getExpensesByCategory = () => {
+    const expenseTransactions = transactions.filter(t => t.type === 'expense');
+    const categoryTotals = {};
+    
+    expenseTransactions.forEach(t => {
+      categoryTotals[t.category] = (categoryTotals[t.category] || 0) + t.amount;
+    });
+    
+    const total = Object.values(categoryTotals).reduce((sum, value) => sum + value, 0);
+    
+    return Object.entries(categoryTotals).map(([category, amount]) => ({
+      category,
+      amount,
+      percentage: total > 0 ? ((amount / total) * 100).toFixed(1) : 0
+    }));
+  };
+
+  const getLoanBalance = () => {
+    const loanTransactions = transactions.filter(t => t.type === 'loan');
+    const categoryTotals = {};
+    
+    loanTransactions.forEach(t => {
+      categoryTotals[t.category] = (categoryTotals[t.category] || 0) + t.amount;
+    });
+    
+    const prestado = categoryTotals['Prestado'] || 0;
+    const devuelto = (categoryTotals['Abono'] || 0) + (categoryTotals['Devolución'] || 0);
+    const pendiente = prestado - devuelto;
+    
+    return {
+      prestado,
+      devuelto,
+      pendiente
+    };
+  };
+
   const getFilteredTransactions = () => {
     return transactions.filter(transaction => {
-      // Filtro por fecha desde
-      if (filters.dateFrom && transaction.date < filters.dateFrom) {
-        return false;
-      }
-
-      // Filtro por fecha hasta
-      if (filters.dateTo && transaction.date > filters.dateTo) {
-        return false;
-      }
-
-      // Filtro por categoría
-      if (filters.category && transaction.category !== filters.category) {
-        return false;
-      }
-
-      // Filtro por tipo
-      if (filters.type && transaction.type !== filters.type) {
-        return false;
-      }
-
-      // Filtro por texto (busca en categoría, destinatario y observaciones)
-      if (filters.text) {
-        const searchText = filters.text.toLowerCase();
-        const categoryMatch = transaction.category.toLowerCase().includes(searchText);
-        const recipientMatch = transaction.recipient && transaction.recipient.toLowerCase().includes(searchText);
-        const observationsMatch = transaction.observations && transaction.observations.toLowerCase().includes(searchText);
-        if (!categoryMatch && !recipientMatch && !observationsMatch) {
-          return false;
-        }
-      }
-
-      return true;
+      const matchesDate = (!filters.startDate || transaction.date >= filters.startDate) &&
+                         (!filters.endDate || transaction.date <= filters.endDate);
+      const matchesType = !filters.type || transaction.type === filters.type;
+      const matchesCategory = !filters.category || transaction.category === filters.category;
+      
+      return matchesDate && matchesType && matchesCategory;
     });
   };
 
-  // Obtener todas las categorías únicas para el filtro
-  const getAllCategories = () => {
-    const categories = [...new Set(transactions.map(t => t.category))];
-    return categories.sort();
+  const clearAllFilters = () => {
+    setFilters({
+      startDate: '',
+      endDate: '',
+      type: '',
+      category: ''
+    });
   };
 
-  // Vista del gráfico
-  if (currentView === 'chart') {
-    const chartData = getChartData();
-    const hasExpenseData = chartData.length > 0;
+  const exportCSV = () => {
+    const filteredData = getFilteredTransactions();
+    const headers = ['Fecha', 'Tipo', 'Categoría', 'Monto', 'Observaciones'];
+    
+    const csvContent = [
+      headers.join(','),
+      ...filteredData.map(t => {
+        const observations = (t.observations || '').replace(/"/g, '""');
+        return [
+          t.date,
+          t.type === 'income' ? 'Entrada' : t.type === 'expense' ? 'Salida' : 'Préstamo',
+          t.category,
+          t.amount,
+          `"${observations}"`
+        ].join(',');
+      })
+    ].join('\n');
+    
+    const BOM = '\uFEFF';
+    const blob = new Blob([BOM + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `transacciones_${new Date().toISOString().split('T')[0]}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    window.URL.revokeObjectURL(url);
+    
+    alert(`✅ Se exportaron ${filteredData.length} transacciones a CSV`);
+  };
 
+  // Categorías dinámicas
+  const incomeCategories = customCategories.income;
+  const expenseCategories = customCategories.expense;
+  const loanCategories = customCategories.loan;
+
+  // Clases CSS dinámicas
+  const bgClass = isDark ? 'bg-gray-900' : 'bg-gray-50';
+  const cardClass = isDark ? 'bg-gray-800' : 'bg-white';
+  const textClass = isDark ? 'text-white' : 'text-gray-900';
+  const textSecondaryClass = isDark ? 'text-gray-400' : 'text-gray-600';
+  const borderClass = isDark ? 'border-gray-600' : 'border-gray-300';
+  const inputClass = isDark ? 'bg-gray-700 text-white border-gray-600' : 'bg-white text-gray-900 border-gray-300';
+
+  // VISTA DEL GESTOR DE CATEGORÍAS
+  if (currentView === 'categories') {
     return (
-      <div className="min-h-screen bg-gray-50 p-4">
+      <div className={'min-h-screen ' + bgClass + ' p-4'}>
         <div className="max-w-md mx-auto">
-          {/* Header */}
-          <div className="flex items-center gap-4 mb-6">
+          <div className="flex items-center gap-2 mb-6">
             <button
-              onClick={() => setCurrentView('details')}
-              className="p-2 rounded-lg bg-white shadow-sm"
+              onClick={() => setCurrentView('home')}
+              className={cardClass + ' p-2 rounded-lg shadow-sm'}
             >
-              <ArrowLeft size={20} />
+              ← Atrás
             </button>
-            <h1 className="text-xl font-bold flex-1">Gráfico de Gastos</h1>
+            <h1 className={'text-xl font-bold ' + textClass}>Gestionar Categorías</h1>
           </div>
 
-          {/* Gráfico */}
-          <div className="bg-white rounded-lg shadow-sm p-6 mb-4">
-            {hasExpenseData ? (
-              <SimpleChart data={chartData} />
-            ) : (
-              <div className="text-center py-8 text-gray-500">
-                <PieChart size={48} className="mx-auto mb-2 opacity-50" />
-                <p>No hay datos de gastos para mostrar</p>
-                <p className="text-sm">Los gráficos muestran salidas de dinero y préstamos</p>
+          {/* Selector de tipo de categoría */}
+          <div className={cardClass + ' rounded-lg shadow-sm p-4 mb-4'}>
+            <h3 className={'font-semibold ' + textClass + ' mb-3'}>Tipo de Categoría</h3>
+            <div className="grid grid-cols-3 gap-2">
+              <button
+                onClick={() => setCategoryTypeToEdit('income')}
+                className={'p-2 rounded-lg text-center font-medium transition-colors ' + 
+                  (categoryTypeToEdit === 'income' ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200')
+                }
+              >
+                Ingresos
+              </button>
+              <button
+                onClick={() => setCategoryTypeToEdit('expense')}
+                className={'p-2 rounded-lg text-center font-medium transition-colors ' + 
+                  (categoryTypeToEdit === 'expense' ? 'bg-red-500 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200')
+                }
+              >
+                Gastos
+              </button>
+              <button
+                onClick={() => setCategoryTypeToEdit('loan')}
+                className={'p-2 rounded-lg text-center font-medium transition-colors ' + 
+                  (categoryTypeToEdit === 'loan' ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200')
+                }
+              >
+                Préstamos
+              </button>
+            </div>
+          </div>
+
+          {/* Agregar nueva categoría */}
+          <div className={cardClass + ' rounded-lg shadow-sm p-4 mb-4'}>
+            <h3 className={'font-semibold ' + textClass + ' mb-3'}>Agregar Nueva Categoría</h3>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={newCategoryName}
+                onChange={(e) => setNewCategoryName(e.target.value)}
+                className={'flex-1 p-3 border ' + inputClass + ' rounded-lg'}
+                placeholder="Nombre de la categoría"
+                onKeyPress={(e) => e.key === 'Enter' && addCustomCategory()}
+              />
+              <button
+                onClick={addCustomCategory}
+                disabled={!newCategoryName.trim()}
+                className={'p-3 rounded-lg text-white font-medium ' + 
+                  (newCategoryName.trim() ? 'bg-blue-500 hover:bg-blue-600' : 'bg-gray-400 cursor-not-allowed')
+                }
+              >
+                + Agregar
+              </button>
+            </div>
+          </div>
+
+          {/* Lista de categorías actuales */}
+          <div className={cardClass + ' rounded-lg shadow-sm p-4'}>
+            <h3 className={'font-semibold ' + textClass + ' mb-3'}>
+              Categorías de {categoryTypeToEdit === 'income' ? 'Ingresos' : 
+                            categoryTypeToEdit === 'expense' ? 'Gastos' : 'Préstamos'}
+            </h3>
+            <div className="space-y-2">
+              {customCategories[categoryTypeToEdit].map((category, index) => (
+                <div key={index} className={'flex items-center justify-between p-3 border ' + borderClass + ' rounded-lg'}>
+                  <span className={textClass + ' font-medium'}>{category}</span>
+                  <button
+                    onClick={() => removeCustomCategory(categoryTypeToEdit, category)}
+                    className="text-red-500 hover:text-red-700 font-medium"
+                  >
+                    Eliminar
+                  </button>
+                </div>
+              ))}
+              {customCategories[categoryTypeToEdit].length === 0 && (
+                <p className={textSecondaryClass + ' text-center py-4'}>
+                  No hay categorías para este tipo
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // VISTA DE FORMULARIO
+  if (currentView === 'form') {
+    const categories = formData.type === 'income' ? incomeCategories : 
+                     formData.type === 'expense' ? expenseCategories : loanCategories;
+
+    return (
+      <div className={'min-h-screen ' + bgClass + ' p-4'}>
+        <div className="max-w-md mx-auto">
+          <div className="flex items-center gap-2 mb-6">
+            <button
+              onClick={() => {
+                setCurrentView('home');
+                setEditingId(null);
+              }}
+              className={cardClass + ' p-2 rounded-lg shadow-sm'}
+            >
+              ← Atrás
+            </button>
+            <h1 className={'text-xl font-bold ' + textClass}>
+              {editingId ? 'Editar' : 'Nueva'} {formData.type === 'income' ? 'Entrada' : formData.type === 'expense' ? 'Salida' : 'Préstamo'}
+            </h1>
+          </div>
+
+          <div className={cardClass + ' rounded-lg shadow-sm p-6'}>
+            <div className="grid grid-cols-3 gap-2 mb-6">
+              <button
+                onClick={() => setFormData({...formData, type: 'income', category: ''})}
+                className={'p-3 rounded-lg text-center font-medium transition-colors ' + 
+                  (formData.type === 'income' ? 'bg-green-500 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200')
+                }
+              >
+                <Plus size={20} className="mx-auto mb-1" />
+                <div className="text-xs">Entrada</div>
+              </button>
+              <button
+                onClick={() => setFormData({...formData, type: 'expense', category: ''})}
+                className={'p-3 rounded-lg text-center font-medium transition-colors ' + 
+                  (formData.type === 'expense' ? 'bg-red-500 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200')
+                }
+              >
+                <Minus size={20} className="mx-auto mb-1" />
+                <div className="text-xs">Salida</div>
+              </button>
+              <button
+                onClick={() => setFormData({...formData, type: 'loan', category: ''})}
+                className={'p-3 rounded-lg text-center font-medium transition-colors ' + 
+                  (formData.type === 'loan' ? 'bg-orange-500 text-white' : 'bg-gray-100 text-gray-700 hover:bg-gray-200')
+                }
+              >
+                <DollarSign size={20} className="mx-auto mb-1" />
+                <div className="text-xs">Préstamo</div>
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className={'block text-sm font-medium ' + textClass + ' mb-1'}>
+                  Monto *
+                </label>
+                <input
+                  type="number"
+                  value={formData.amount}
+                  onChange={(e) => setFormData({...formData, amount: e.target.value})}
+                  className={'w-full p-3 border ' + inputClass + ' rounded-lg'}
+                  placeholder="Ingrese el monto"
+                />
+              </div>
+
+              <div>
+                <label className={'block text-sm font-medium ' + textClass + ' mb-1'}>
+                  Categoría *
+                </label>
+                <select
+                  value={formData.category}
+                  onChange={(e) => setFormData({...formData, category: e.target.value})}
+                  className={'w-full p-3 border ' + inputClass + ' rounded-lg'}
+                >
+                  <option value="">Seleccione una categoría</option>
+                  {categories.map(cat => (
+                    <option key={cat} value={cat}>{cat}</option>
+                  ))}
+                </select>
+              </div>
+
+              <div>
+                <label className={'block text-sm font-medium ' + textClass + ' mb-1'}>
+                  Fecha *
+                </label>
+                <input
+                  type="date"
+                  value={formData.date}
+                  onChange={(e) => setFormData({...formData, date: e.target.value})}
+                  className={'w-full p-3 border ' + inputClass + ' rounded-lg'}
+                />
+              </div>
+
+              <div>
+                <label className={'block text-sm font-medium ' + textClass + ' mb-1'}>
+                  Observaciones *
+                </label>
+                <textarea
+                  value={formData.observations}
+                  onChange={(e) => setFormData({...formData, observations: e.target.value})}
+                  className={'w-full p-3 border ' + inputClass + ' rounded-lg'}
+                  placeholder="Observaciones obligatorias..."
+                  rows={3}
+                />
+              </div>
+            </div>
+
+            <div className="flex gap-3 pt-4">
+              <button
+                onClick={() => {
+                  setCurrentView('home');
+                  setEditingId(null);
+                }}
+                className={'flex-1 p-3 border ' + borderClass + ' rounded-lg ' + textClass + ' font-medium'}
+              >
+                Cancelar
+              </button>
+              
+              {editingId && (
+                <button
+                  onClick={() => setShowDeleteConfirm(true)}
+                  className="flex-1 p-3 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium"
+                >
+                  Eliminar
+                </button>
+              )}
+              
+              <button
+                onClick={handleSubmit}
+                disabled={!formData.amount || !formData.category || !formData.observations.trim()}
+                className={'flex-1 p-3 rounded-lg text-white font-medium ' + 
+                  (formData.amount && formData.category && formData.observations.trim() ? 
+                    (formData.type === 'income' ? 'bg-green-500' : 
+                     formData.type === 'expense' ? 'bg-red-500' : 'bg-orange-500')
+                    : 'bg-gray-400 cursor-not-allowed')
+                }
+              >
+                {editingId ? 'Actualizar' : 'Guardar'}
+              </button>
+            </div>
+
+            {/* Modal de confirmación de eliminación */}
+            {showDeleteConfirm && (
+              <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                <div className={cardClass + ' rounded-lg p-6 max-w-sm w-full'}>
+                  <h3 className={'text-lg font-bold ' + textClass + ' mb-2'}>Confirmar Eliminación</h3>
+                  <p className={textSecondaryClass + ' mb-4'}>
+                    ¿Estás seguro que quieres eliminar esta transacción? Esta acción no se puede deshacer.
+                  </p>
+                  <div className="flex gap-3">
+                    <button
+                      onClick={() => setShowDeleteConfirm(false)}
+                      className={'flex-1 p-3 border ' + borderClass + ' rounded-lg ' + textClass + ' font-medium'}
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      onClick={handleDelete}
+                      className="flex-1 p-3 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium"
+                    >
+                      Eliminar
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
           </div>
@@ -434,129 +702,309 @@ const MoneyControlApp = () => {
     );
   }
 
-  // Vista principal
-  if (currentView === 'home') {
+  // VISTA DE REPORTES
+  if (currentView === 'reports') {
+    const currentMonthData = getMonthlyData(selectedMonth);
+    const expensesByCategory = getExpensesByCategory();
+    const monthName = new Date(selectedMonth + '-01').toLocaleDateString('es-PY', { month: 'long', year: 'numeric' });
+
     return (
-      <div className="min-h-screen bg-gray-50 p-4">
+      <div className={'min-h-screen ' + bgClass + ' p-4'}>
         <div className="max-w-md mx-auto">
-          {/* Header con saldo */}
-          <div className="bg-blue-600 text-white p-6 rounded-lg mb-6 text-center">
-            <h1 className="text-xl font-bold mb-2">Control de Dinero</h1>
-            <div className="text-3xl font-bold">{formatCurrency(balance)}</div>
-            <p className="text-blue-100">Saldo Total</p>
+          <div className="flex items-center gap-2 mb-6">
+            <button
+              onClick={() => setCurrentView('home')}
+              className={cardClass + ' p-2 rounded-lg shadow-sm'}
+            >
+              ← Atrás
+            </button>
+            <h1 className={'text-lg font-bold flex-1 ' + textClass}>Reportes</h1>
           </div>
 
-          {/* Botones de acción */}
-          <div className="grid grid-cols-3 gap-3 mb-6">
-            <button
-              onClick={() => {
-                resetForm();
-                setFormData(prev => ({...prev, type: 'income'}));
-                setCurrentView('form');
-              }}
-              className="bg-green-500 text-white p-3 rounded-lg flex flex-col items-center justify-center gap-1 font-semibold text-sm"
-            >
-              <Plus size={18} />
-              <span>Entrada</span>
-            </button>
-            <button
-              onClick={() => {
-                resetForm();
-                setFormData(prev => ({...prev, type: 'expense'}));
-                setCurrentView('form');
-              }}
-              className="bg-red-500 text-white p-3 rounded-lg flex flex-col items-center justify-center gap-1 font-semibold text-sm"
-            >
-              <Minus size={18} />
-              <span>Salida</span>
-            </button>
-            <button
-              onClick={() => {
-                resetForm();
-                setFormData(prev => ({...prev, type: 'loan'}));
-                setCurrentView('form');
-              }}
-              className="bg-orange-500 text-white p-3 rounded-lg flex flex-col items-center justify-center gap-1 font-semibold text-sm"
-            >
-              <DollarSign size={18} />
-              <span>Préstamo</span>
-            </button>
-          </div>
-
-          {/* Botón Ver Detalles */}
-          <div className="mb-6">
-            <button
-              onClick={() => setCurrentView('details')}
-              className="w-full bg-blue-500 text-white p-3 rounded-lg font-semibold"
-            >
-              Ver Movimientos Detallados
-            </button>
-          </div>
-
-          {/* Historial de transacciones */}
-          <div className="bg-white rounded-lg shadow-sm">
-            <div className="p-4 border-b">
-              <h2 className="font-semibold text-gray-800">Movimientos Recientes</h2>
+          {/* Selector de Mes */}
+          <div className={cardClass + ' rounded-lg shadow-sm p-4 mb-4'}>
+            <div className="flex items-center justify-between">
+              <button 
+                onClick={() => {
+                  const [year, month] = selectedMonth.split('-');
+                  const date = new Date(year, month - 2, 1);
+                  setSelectedMonth(date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0'));
+                }}
+                className={'p-2 rounded-lg bg-gray-100 hover:bg-gray-200 ' + (isDark ? 'bg-gray-700 hover:bg-gray-600' : '')}
+              >
+                ←
+              </button>
+              <h2 className={'text-lg font-semibold capitalize ' + textClass}>{monthName}</h2>
+              <button 
+                onClick={() => {
+                  const [year, month] = selectedMonth.split('-');
+                  const date = new Date(year, month, 1);
+                  setSelectedMonth(date.getFullYear() + '-' + String(date.getMonth() + 1).padStart(2, '0'));
+                }}
+                className={'p-2 rounded-lg bg-gray-100 hover:bg-gray-200 ' + (isDark ? 'bg-gray-700 hover:bg-gray-600' : '')}
+              >
+                →
+              </button>
             </div>
-            <div className="max-h-96 overflow-y-auto">
-              {transactions.length === 0 ? (
-                <div className="p-4 text-center text-gray-500">
-                  No hay movimientos registrados
+          </div>
+
+          {/* Resumen del Mes */}
+          <div className={cardClass + ' rounded-lg shadow-sm p-4 mb-4'}>
+            <h3 className={'font-semibold ' + textClass + ' mb-3'}>Resumen de {monthName}</h3>
+            
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              <div className="text-center">
+                <div className={'text-xs ' + textSecondaryClass + ' mb-1'}>Balance Neto</div>
+                <div className={'font-bold text-lg ' + (currentMonthData.net >= 0 ? 'text-green-600' : 'text-red-600')}>
+                  {formatCurrency(currentMonthData.net)}
                 </div>
-              ) : (
-                transactions.slice().reverse().slice(0, 5).map((transaction) => (
-                  <div key={transaction.id} className="p-4 border-b last:border-b-0">
-                    <div className="flex justify-between items-start gap-2">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1">
-                          <div className={`w-3 h-3 rounded-full flex-shrink-0 ${
-                            transaction.type === 'income' ? 'bg-green-500' : 
-                            transaction.type === 'expense' ? 'bg-red-500' : 'bg-orange-500'
-                          }`}></div>
-                          <span className="font-medium text-sm truncate">{transaction.category}</span>
-                          {transaction.type === 'loan' && (
-                            <span className={`px-2 py-1 text-xs rounded-full flex-shrink-0 ${
-                              transaction.category === 'Prestado' 
-                                ? 'bg-orange-100 text-orange-800' 
-                                : 'bg-green-100 text-green-800'
-                            }`}>
-                              {transaction.category}
-                            </span>
-                          )}
+              </div>
+              <div className="text-center">
+                <div className={'text-xs ' + textSecondaryClass + ' mb-1'}>Transacciones</div>
+                <div className="font-bold text-lg text-blue-600">
+                  {currentMonthData.total}
+                </div>
+              </div>
+            </div>
+
+            {/* Gráfico de barras para Entradas vs Salidas */}
+            <div className="mb-4">
+              <h4 className={'font-medium ' + textClass + ' mb-3'}>Entradas vs Salidas</h4>
+              <div className="space-y-3">
+                {/* Barra de Entradas */}
+                <div>
+                  <div className="flex justify-between items-center mb-1">
+                    <span className="text-green-600 font-medium text-sm">Entradas</span>
+                    <span className="text-green-600 font-bold text-sm">{formatCurrency(currentMonthData.income)}</span>
+                  </div>
+                  <div className={'w-full bg-gray-200 rounded-full h-3 ' + (isDark ? 'bg-gray-700' : '')}>
+                    <div 
+                      className="h-3 bg-green-500 rounded-full transition-all duration-1000 ease-out"
+                      style={{ 
+                        width: currentMonthData.income > 0 ? 
+                          Math.min(100, (currentMonthData.income / Math.max(currentMonthData.income, currentMonthData.expense, 1)) * 100) + '%' : '0%'
+                      }}
+                    ></div>
+                  </div>
+                </div>
+
+                {/* Barra de Salidas */}
+                <div>
+                  <div className="flex justify-between items-center mb-1">
+                    <span className="text-red-600 font-medium text-sm">Salidas</span>
+                    <span className="text-red-600 font-bold text-sm">{formatCurrency(currentMonthData.expense)}</span>
+                  </div>
+                  <div className={'w-full bg-gray-200 rounded-full h-3 ' + (isDark ? 'bg-gray-700' : '')}>
+                    <div 
+                      className="h-3 bg-red-500 rounded-full transition-all duration-1000 ease-out"
+                      style={{ 
+                        width: currentMonthData.expense > 0 ? 
+                          Math.min(100, (currentMonthData.expense / Math.max(currentMonthData.income, currentMonthData.expense, 1)) * 100) + '%' : '0%'
+                      }}
+                    ></div>
+                  </div>
+                </div>
+
+                {/* Barra de Préstamos si hay */}
+                {currentMonthData.loans > 0 && (
+                  <div>
+                    <div className="flex justify-between items-center mb-1">
+                      <span className="text-orange-600 font-medium text-sm">Préstamos</span>
+                      <span className="text-orange-600 font-bold text-sm">{formatCurrency(currentMonthData.loans)}</span>
+                    </div>
+                    <div className={'w-full bg-gray-200 rounded-full h-3 ' + (isDark ? 'bg-gray-700' : '')}>
+                      <div 
+                        className="h-3 bg-orange-500 rounded-full transition-all duration-1000 ease-out"
+                        style={{ 
+                          width: Math.min(100, (Math.abs(currentMonthData.loans) / Math.max(currentMonthData.income, currentMonthData.expense, Math.abs(currentMonthData.loans), 1)) * 100) + '%'
+                        }}
+                      ></div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Resumen en números */}
+            <div className="grid grid-cols-3 gap-2 text-center pt-3 border-t" style={{borderColor: isDark ? '#374151' : '#e5e7eb'}}>
+              <div className="min-w-0">
+                <div className={'text-xs ' + textSecondaryClass + ' mb-1'}>Entradas</div>
+                <div className="font-bold text-green-600 text-xs leading-tight">
+                  {formatCurrency(currentMonthData.income)}
+                </div>
+              </div>
+              <div className="min-w-0">
+                <div className={'text-xs ' + textSecondaryClass + ' mb-1'}>Salidas</div>
+                <div className="font-bold text-red-600 text-xs leading-tight">
+                  {formatCurrency(currentMonthData.expense)}
+                </div>
+              </div>
+              <div className="min-w-0">
+                <div className={'text-xs ' + textSecondaryClass + ' mb-1'}>Préstamos</div>
+                <div className="font-bold text-orange-600 text-xs leading-tight">
+                  {formatCurrency(Math.abs(currentMonthData.loans))}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Análisis por Categorías con gráficos mejorados */}
+          {expensesByCategory.length > 0 && (
+            <div className={cardClass + ' rounded-lg shadow-sm p-4 mb-4'}>
+              <h3 className={'font-semibold ' + textClass + ' mb-4'}>Gastos por Categoría</h3>
+              <div className="space-y-4">
+                {expensesByCategory.map((item, index) => {
+                  const colors = [
+                    { bg: 'bg-red-500', ring: 'ring-red-200' },
+                    { bg: 'bg-orange-500', ring: 'ring-orange-200' },
+                    { bg: 'bg-yellow-500', ring: 'ring-yellow-200' },
+                    { bg: 'bg-green-500', ring: 'ring-green-200' },
+                    { bg: 'bg-blue-500', ring: 'ring-blue-200' },
+                    { bg: 'bg-purple-500', ring: 'ring-purple-200' },
+                    { bg: 'bg-pink-500', ring: 'ring-pink-200' }
+                  ];
+                  const colorClass = colors[index % colors.length];
+                  
+                  return (
+                    <div key={item.category} className="relative">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-3">
+                          <div className={'w-4 h-4 rounded-full flex-shrink-0 ring-2 ' + colorClass.bg + ' ' + colorClass.ring}></div>
+                          <span className={'font-medium ' + textClass}>{item.category}</span>
                         </div>
-                        <div className="text-xs text-gray-600">
-                          {formatDate(transaction.date)}
+                        <div className="text-right">
+                          <div className={'text-sm font-bold ' + textClass}>{item.percentage}%</div>
+                          <div className={'text-xs ' + textSecondaryClass}>{formatCurrency(item.amount)}</div>
                         </div>
-                        {transaction.recipient && (
-                          <div className="text-xs text-gray-600 truncate">
-                            Para: {transaction.recipient}
-                          </div>
-                        )}
-                        {transaction.observations && (
-                          <div className="text-xs text-gray-600 truncate">
-                            {transaction.observations}
-                          </div>
-                        )}
                       </div>
-                      <div className="text-right flex-shrink-0 min-w-0">
-                        <div className={`font-bold text-xs leading-tight break-all ${
-                          transaction.type === 'income' ? 'text-green-600' : 
-                          transaction.type === 'expense' ? 'text-red-600' :
-                          transaction.category === 'Prestado' ? 'text-orange-600' : 'text-green-600'
-                        }`}>
-                          {transaction.type === 'income' ? '+' : '-'}{formatCurrencyMobile(transaction.amount)}
+                      
+                      <div className={'w-full bg-gray-200 rounded-full h-3 overflow-hidden ' + (isDark ? 'bg-gray-700' : '')}>
+                        <div 
+                          className={'h-3 rounded-full transition-all duration-1000 ease-out shadow-sm ' + colorClass.bg}
+                          style={{ 
+                            width: '0%',
+                            animation: `fillBar${index} 1s ease-out forwards`
+                          }}
+                        ></div>
+                      </div>
+                      
+                      <style jsx>{`
+                        @keyframes fillBar${index} {
+                          from { width: 0%; }
+                          to { width: ${item.percentage}%; }
+                        }
+                      `}</style>
+                    </div>
+                  );
+                })}
+              </div>
+              
+              {/* Círculo de progreso del gasto total */}
+              <div className="mt-6 pt-4 border-t" style={{borderColor: isDark ? '#374151' : '#e5e7eb'}}>
+                <div className="flex items-center justify-center">
+                  <div className="relative w-24 h-24">
+                    <svg className="w-24 h-24 transform -rotate-90" viewBox="0 0 100 100">
+                      <circle
+                        cx="50"
+                        cy="50"
+                        r="40"
+                        stroke={isDark ? '#374151' : '#e5e7eb'}
+                        strokeWidth="8"
+                        fill="none"
+                      />
+                      <circle
+                        cx="50"
+                        cy="50"
+                        r="40"
+                        stroke="#ef4444"
+                        strokeWidth="8"
+                        fill="none"
+                        strokeDasharray={`${2 * Math.PI * 40}`}
+                        strokeDashoffset={`${2 * Math.PI * 40 * (1 - Math.min(expensesByCategory.reduce((sum, item) => sum + parseFloat(item.percentage), 0) / 100, 1))}`}
+                        className="transition-all duration-2000 ease-out"
+                        strokeLinecap="round"
+                      />
+                    </svg>
+                    <div className="absolute inset-0 flex items-center justify-center">
+                      <div className="text-center">
+                        <div className={'text-xs font-bold text-red-600'}>
+                          {Math.round(expensesByCategory.reduce((sum, item) => sum + parseFloat(item.percentage), 0))}%
                         </div>
-                        <button
-                          onClick={() => handleEdit(transaction)}
-                          className="text-xs text-blue-500 hover:text-blue-700 mt-1"
-                        >
-                          Editar
-                        </button>
+                        <div className={'text-xs ' + textSecondaryClass}>Gastos</div>
                       </div>
                     </div>
                   </div>
-                ))
-              )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Resumen General con gráficos circulares */}
+          <div className={cardClass + ' rounded-lg shadow-sm p-4'}>
+            <h3 className={'font-semibold ' + textClass + ' mb-4'}>Resumen General</h3>
+            
+            {/* Indicador visual del balance */}
+            <div className="mb-6">
+              <div className="flex items-center justify-center mb-3">
+                <div className="relative w-32 h-32">
+                  <svg className="w-32 h-32 transform -rotate-90" viewBox="0 0 100 100">
+                    <circle
+                      cx="50"
+                      cy="50"
+                      r="45"
+                      stroke={isDark ? '#374151' : '#e5e7eb'}
+                      strokeWidth="6"
+                      fill="none"
+                    />
+                    <circle
+                      cx="50"
+                      cy="50"
+                      r="45"
+                      stroke={balance >= 0 ? '#10b981' : '#ef4444'}
+                      strokeWidth="6"
+                      fill="none"
+                      strokeDasharray={`${2 * Math.PI * 45}`}
+                      strokeDashoffset={`${2 * Math.PI * 45 * 0.25}`}
+                      className="transition-all duration-2000 ease-out"
+                      strokeLinecap="round"
+                    />
+                  </svg>
+                  <div className="absolute inset-0 flex items-center justify-center">
+                    <div className="text-center">
+                      <div className={'text-lg font-bold ' + (balance >= 0 ? 'text-green-600' : 'text-red-600')}>
+                        ₲
+                      </div>
+                      <div className={'text-xs ' + textSecondaryClass}>Balance</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="text-center">
+                <div className={'text-xs ' + textSecondaryClass + ' mb-1'}>Balance Total</div>
+                <div className={'font-bold text-xl ' + (balance >= 0 ? 'text-green-600' : 'text-red-600')}>
+                  {formatCurrency(balance)}
+                </div>
+              </div>
+            </div>
+
+            {/* Métricas adicionales */}
+            <div className="grid grid-cols-2 gap-4">
+              <div className="text-center p-3 rounded-lg bg-blue-50" style={{backgroundColor: isDark ? '#1e3a8a20' : '#dbeafe'}}>
+                <div className={'text-xs ' + textSecondaryClass + ' mb-1'}>Total Transacciones</div>
+                <div className="font-bold text-2xl text-blue-600">
+                  {transactions.length}
+                </div>
+                <div className={'text-xs ' + textSecondaryClass}>registradas</div>
+              </div>
+              
+              <div className="text-center p-3 rounded-lg bg-purple-50" style={{backgroundColor: isDark ? '#581c8720' : '#f3e8ff'}}>
+                <div className={'text-xs ' + textSecondaryClass + ' mb-1'}>Promedio Mensual</div>
+                <div className="font-bold text-2xl text-purple-600">
+                  {Math.round(transactions.length / Math.max(1, new Set(transactions.map(t => t.date.substring(0, 7))).size))}
+                </div>
+                <div className={'text-xs ' + textSecondaryClass}>por mes</div>
+              </div>
             </div>
           </div>
         </div>
@@ -564,96 +1012,71 @@ const MoneyControlApp = () => {
     );
   }
 
-  // Vista de detalles con filtros
+  // VISTA DE MOVIMIENTOS
   if (currentView === 'details') {
     const filteredTransactions = getFilteredTransactions();
-    const hasActiveFilters = Object.values(filters).some(value => value !== '');
-    const totalIncome = filteredTransactions.filter(t => t.type === 'income').reduce((sum, t) => sum + t.amount, 0);
-    const totalExpense = filteredTransactions.filter(t => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0);
-    const totalLoaned = filteredTransactions.filter(t => t.type === 'loan' && t.category === 'Prestado').reduce((sum, t) => sum + t.amount, 0);
-    const totalReturned = filteredTransactions.filter(t => t.type === 'loan' && t.category === 'Abono').reduce((sum, t) => sum + t.amount, 0);
-    const netTotal = totalIncome - totalExpense - totalLoaned + totalReturned;
+    const availableCategories = [...new Set(transactions.map(t => t.category))];
 
     return (
-      <div className="min-h-screen bg-gray-50 p-4">
+      <div className={'min-h-screen ' + bgClass + ' p-4'}>
         <div className="max-w-md mx-auto">
-          {/* Header */}
-          <div className="flex items-center gap-2 mb-6">
+          <div className="flex items-center gap-2 mb-4">
             <button
               onClick={() => setCurrentView('home')}
-              className="p-2 rounded-lg bg-white shadow-sm"
+              className={cardClass + ' p-2 rounded-lg shadow-sm'}
             >
-              <ArrowLeft size={20} />
+              ← Atrás
             </button>
-            <h1 className="text-lg font-bold flex-1">Movimientos Detallados</h1>
-            <button
-              onClick={() => setCurrentView('chart')}
-              className="p-2 rounded-lg bg-white shadow-sm"
-              title="Ver Gráfico"
-            >
-              <PieChart size={20} />
-            </button>
-            <button
-              onClick={downloadCSV}
-              className="p-2 rounded-lg bg-green-500 text-white shadow-sm"
-              title="Descargar CSV"
-            >
-              <Download size={20} />
-            </button>
+            <h1 className={'text-lg font-bold flex-1 ' + textClass}>Todos los Movimientos</h1>
             <button
               onClick={() => setShowFilters(!showFilters)}
-              className={`p-2 rounded-lg shadow-sm ${hasActiveFilters ? 'bg-blue-500 text-white' : 'bg-white'}`}
+              className={cardClass + ' p-2 rounded-lg shadow-sm'}
             >
-              <Filter size={20} />
+              🔍 Filtros
             </button>
           </div>
 
-          {/* Panel de filtros */}
+          {/* Panel de Filtros */}
           {showFilters && (
-            <div className="bg-white rounded-lg shadow-sm p-4 mb-4">
-              <div className="flex justify-between items-center mb-4">
-                <h3 className="font-semibold text-gray-800">Filtros</h3>
+            <div className={cardClass + ' rounded-lg shadow-sm p-4 mb-4'}>
+              <div className="flex justify-between items-center mb-3">
+                <h3 className={'font-semibold ' + textClass}>Filtros</h3>
                 <button
-                  onClick={() => {
-                    resetFilters();
-                    setShowFilters(false);
-                  }}
-                  className="text-sm text-blue-500 hover:text-blue-700"
+                  onClick={() => setShowFilters(false)}
+                  className={'p-1 rounded-lg hover:bg-gray-100 ' + (isDark ? 'hover:bg-gray-700' : '')}
                 >
-                  Limpiar
+                  ✕
                 </button>
               </div>
-
+              
               <div className="space-y-3">
-                {/* Filtro de fecha */}
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-xs text-gray-600 mb-1">Desde</label>
+                    <label className={'block text-xs font-medium ' + textClass + ' mb-1'}>Desde</label>
                     <input
                       type="date"
-                      value={filters.dateFrom}
-                      onChange={(e) => setFilters({...filters, dateFrom: e.target.value})}
-                      className="w-full p-2 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500"
+                      value={filters.startDate}
+                      onChange={(e) => setFilters({...filters, startDate: e.target.value})}
+                      className={'w-full p-2 border ' + inputClass + ' rounded text-sm'}
                     />
                   </div>
                   <div>
-                    <label className="block text-xs text-gray-600 mb-1">Hasta</label>
+                    <label className={'block text-xs font-medium ' + textClass + ' mb-1'}>Hasta</label>
                     <input
                       type="date"
-                      value={filters.dateTo}
-                      onChange={(e) => setFilters({...filters, dateTo: e.target.value})}
-                      className="w-full p-2 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500"
+                      value={filters.endDate}
+                      onChange={(e) => setFilters({...filters, endDate: e.target.value})}
+                      className={'w-full p-2 border ' + inputClass + ' rounded text-sm'}
                     />
                   </div>
                 </div>
-
-                {/* Filtro por tipo */}
+                
                 <div>
-                  <label className="block text-xs text-gray-600 mb-1">Tipo</label>
+                  <label className={'block text-xs font-medium ' + textClass + ' mb-1'}>Tipo</label>
                   <select
                     value={filters.type}
-                    onChange={(e) => setFilters({...filters, type: e.target.value})}
-                    className="w-full p-2 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500"
+                    onChange={(e) => setFilters({...filters, type: e.target.value, category: ''})}
+                    className={'w-full p-2 border ' + inputClass + ' rounded text-sm'}
                   >
                     <option value="">Todos</option>
                     <option value="income">Entradas</option>
@@ -661,308 +1084,273 @@ const MoneyControlApp = () => {
                     <option value="loan">Préstamos</option>
                   </select>
                 </div>
-
-                {/* Filtro por categoría */}
+                
                 <div>
-                  <label className="block text-xs text-gray-600 mb-1">Categoría</label>
+                  <label className={'block text-xs font-medium ' + textClass + ' mb-1'}>Categoría</label>
                   <select
                     value={filters.category}
                     onChange={(e) => setFilters({...filters, category: e.target.value})}
-                    className="w-full p-2 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500"
+                    className={'w-full p-2 border ' + inputClass + ' rounded text-sm'}
                   >
                     <option value="">Todas</option>
-                    {getAllCategories().map(category => (
-                      <option key={category} value={category}>{category}</option>
+                    {availableCategories.map(cat => (
+                      <option key={cat} value={cat}>{cat}</option>
                     ))}
                   </select>
                 </div>
-
-                {/* Filtro por texto */}
-                <div>
-                  <label className="block text-xs text-gray-600 mb-1">Buscar texto</label>
-                  <input
-                    type="text"
-                    value={filters.text}
-                    onChange={(e) => setFilters({...filters, text: e.target.value})}
-                    placeholder="Buscar en categorías, destinatarios y observaciones..."
-                    className="w-full p-2 text-sm border border-gray-300 rounded focus:ring-1 focus:ring-blue-500"
-                  />
+                
+                <div className="flex gap-2 pt-2">
+                  <button
+                    onClick={clearAllFilters}
+                    className={'flex-1 p-2 border ' + borderClass + ' rounded-lg text-sm font-medium ' + textClass}
+                  >
+                    Limpiar Filtros
+                  </button>
+                  <button
+                    onClick={exportCSV}
+                    className="flex-1 p-2 bg-green-600 text-white rounded-lg text-sm font-medium flex items-center justify-center gap-1"
+                  >
+                    📄 Exportar CSV
+                  </button>
                 </div>
               </div>
             </div>
           )}
 
-          {/* Resumen mejorado con préstamos */}
-          <div className="bg-white rounded-lg shadow-sm p-3 mb-4">
-            <div className="grid grid-cols-2 gap-2 text-center mb-3">
-              <div className="min-w-0">
-                <div className="text-xs text-gray-600 mb-1">Total</div>
-                <div className="font-bold text-blue-600 text-xs leading-tight break-all">
-                  {formatCurrencyMobile(netTotal)}
-                </div>
-              </div>
-              <div className="min-w-0">
-                <div className="text-xs text-gray-600 mb-1">Entradas</div>
-                <div className="font-bold text-green-600 text-xs leading-tight break-all">
-                  {formatCurrencyMobile(totalIncome)}
-                </div>
-              </div>
+          {/* Contador de resultados */}
+          {(filters.startDate || filters.endDate || filters.type || filters.category) && (
+            <div className={cardClass + ' rounded-lg shadow-sm p-3 mb-4 text-center'}>
+              <span className={textSecondaryClass + ' text-sm'}>
+                Mostrando {filteredTransactions.length} de {transactions.length} transacciones
+              </span>
             </div>
-            <div className="grid grid-cols-3 gap-1 text-center">
-              <div className="min-w-0">
-                <div className="text-xs text-gray-600 mb-1">Salidas</div>
-                <div className="font-bold text-red-600 text-xs leading-tight break-all">
-                  {formatCurrencyMobile(totalExpense)}
-                </div>
-              </div>
-              <div className="min-w-0">
-                <div className="text-xs text-gray-600 mb-1">Pendiente</div>
-                <div className="font-bold text-orange-600 text-xs leading-tight break-all">
-                  {formatCurrencyMobile(totalLoaned - totalReturned)}
-                </div>
-              </div>
-              <div className="min-w-0">
-                <div className="text-xs text-gray-600 mb-1">Devuelto</div>
-                <div className="font-bold text-green-600 text-xs leading-tight break-all">
-                  {formatCurrencyMobile(totalReturned)}
-                </div>
-              </div>
-            </div>
-          </div>
+          )}
 
-          {/* Lista de transacciones filtradas */}
-          <div className="bg-white rounded-lg shadow-sm">
-            <div className="p-4 border-b">
-              <h2 className="font-semibold text-gray-800">
-                {hasActiveFilters ? 'Resultados Filtrados' : 'Todos los Movimientos'} ({filteredTransactions.length})
-              </h2>
-            </div>
-            <div className="max-h-96 overflow-y-auto">
-              {filteredTransactions.length === 0 ? (
-                <div className="p-4 text-center text-gray-500">
-                  {hasActiveFilters ? 'No se encontraron movimientos con los filtros aplicados' : 'No hay movimientos registrados'}
-                </div>
-              ) : (
-                filteredTransactions.slice().reverse().map((transaction) => (
-                  <div key={transaction.id} className="p-4 border-b last:border-b-0">
-                    <div className="flex justify-between items-start gap-2 mb-2">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1 flex-wrap">
-                          <div className={`w-3 h-3 rounded-full flex-shrink-0 ${
-                            transaction.type === 'income' ? 'bg-green-500' : 
-                            transaction.type === 'expense' ? 'bg-red-500' : 'bg-orange-500'
-                          }`}></div>
-                          <span className="font-medium text-sm">{transaction.category}</span>
-                          <span className={`px-2 py-1 text-xs rounded-full flex-shrink-0 ${
-                            transaction.type === 'income' 
-                              ? 'bg-green-100 text-green-800' 
-                              : transaction.type === 'expense'
-                              ? 'bg-red-100 text-red-800'
-                              : transaction.category === 'Prestado'
-                              ? 'bg-orange-100 text-orange-800'
-                              : 'bg-green-100 text-green-800'
-                          }`}>
-                            {transaction.type === 'income' ? 'Entrada' : 
-                             transaction.type === 'expense' ? 'Salida' : 
-                             transaction.category}
+          <div className="space-y-3">
+            {filteredTransactions.length === 0 ? (
+              <div className={cardClass + ' rounded-lg shadow-sm p-8 text-center'}>
+                <p className={textSecondaryClass}>
+                  {(filters.startDate || filters.endDate || filters.type || filters.category) ? 
+                    'No hay transacciones que coincidan con los filtros.' : 
+                    'No hay transacciones que mostrar.'}
+                </p>
+                {(!filters.startDate && !filters.endDate && !filters.type && !filters.category) && (
+                  <button
+                    onClick={() => setCurrentView('form')}
+                    className="mt-4 px-4 py-2 bg-blue-500 text-white rounded-lg text-sm font-medium"
+                  >
+                    Agregar Primera Transacción
+                  </button>
+                )}
+              </div>
+            ) : (
+              filteredTransactions
+                .sort((a, b) => new Date(b.date) - new Date(a.date))
+                .map(transaction => (
+                  <div key={transaction.id} className={cardClass + ' rounded-lg shadow-sm p-4'}>
+                    <div className="flex justify-between items-start mb-2">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-1">
+                          <div className={'w-3 h-3 rounded-full ' + 
+                            (transaction.type === 'income' ? 'bg-green-500' : 
+                             transaction.type === 'expense' ? 'bg-red-500' : 'bg-orange-500')
+                          }></div>
+                          <span className={'font-semibold ' + textClass}>
+                            {transaction.category}
+                          </span>
+                          <span className={'text-xs ' + textSecondaryClass}>
+                            {formatDisplayDate(transaction.date)}
                           </span>
                         </div>
-                        <div className="text-sm text-gray-600 space-y-1">
-                          <div>📅 {formatDate(transaction.date)}</div>
-                          {transaction.recipient && (
-                            <div className="break-words">👤 Para: {transaction.recipient}</div>
-                          )}
-                          {transaction.observations && (
-                            <div className="break-words">💭 {transaction.observations}</div>
-                          )}
-                          <div className="flex items-center gap-2">
-                            <span>💰 Monto:</span>
-                            <span className={`font-semibold text-xs break-all ${
-                              transaction.type === 'income' ? 'text-green-600' : 
-                              transaction.type === 'expense' ? 'text-red-600' :
-                              transaction.category === 'Prestado' ? 'text-orange-600' : 'text-green-600'
-                            }`}>
-                              {(transaction.type === 'expense' || (transaction.type === 'loan' && transaction.category === 'Prestado')) ? '-' : '+'}{formatCurrencyMobile(transaction.amount)}
-                            </span>
-                          </div>
+                        
+                        <div className={'text-lg font-bold ' + 
+                          (transaction.type === 'income' ? 'text-green-600' : 
+                           transaction.type === 'expense' ? 'text-red-600' : 'text-orange-600')
+                        }>
+                          {transaction.type === 'income' ? '+' : '-'}{formatCurrency(transaction.amount)}
                         </div>
+                        
+                        {transaction.observations && (
+                          <p className={'text-sm ' + textSecondaryClass + ' mt-1'}>{transaction.observations}</p>
+                        )}
                       </div>
+                      
                       <button
                         onClick={() => handleEdit(transaction)}
-                        className="px-3 py-1 text-sm bg-blue-500 text-white rounded-lg hover:bg-blue-600 flex-shrink-0"
+                        className="text-blue-500 text-sm font-medium hover:text-blue-700"
                       >
                         Editar
                       </button>
                     </div>
                   </div>
                 ))
-              )}
-            </div>
+            )}
           </div>
         </div>
       </div>
     );
   }
 
-  // Vista del formulario
+  // VISTA PRINCIPAL (HOME)
   return (
-    <div className="min-h-screen bg-gray-50 p-4">
+    <div className={'min-h-screen ' + bgClass + ' p-4'}>
       <div className="max-w-md mx-auto">
         {/* Header */}
-        <div className="flex items-center gap-4 mb-6">
-          <button
-            onClick={() => {
-              setCurrentView('home');
-              if (editingId) {
-                setEditingId(null);
-                resetForm();
-              }
-            }}
-            className="p-2 rounded-lg bg-white shadow-sm"
-          >
-            <ArrowLeft size={20} />
-          </button>
-          <h1 className="text-xl font-bold">
-            {editingId ? 'Editar' : 'Nueva'} {
-              formData.type === 'income' ? 'Entrada' : 
-              formData.type === 'expense' ? 'Salida' : 'Préstamo'
-            }
-          </h1>
+        <div className="text-center mb-6">
+          <div className="flex items-center justify-between mb-2">
+            <div></div>
+            <h1 className={'text-2xl font-bold ' + textClass}>Control de Dinero</h1>
+            <button
+              onClick={toggleDarkMode}
+              className={cardClass + ' p-2 rounded-lg shadow-sm transition-all duration-200 hover:scale-105'}
+            >
+              {isDark ? (
+                <Sun size={20} className="text-yellow-500" />
+              ) : (
+                <Moon size={20} className="text-gray-600" />
+              )}
+            </button>
+          </div>
+          
+          {/* Balance Card */}
+          <div className={cardClass + ' border border-gray-200 rounded-lg shadow-sm p-4 mb-4'}>
+            <div className={'text-sm ' + textSecondaryClass + ' mb-1'}>Balance Total</div>
+            <div className={'text-2xl font-bold ' + (balance >= 0 ? 'text-green-600' : 'text-red-600')}>
+              {formatCurrency(balance)}
+            </div>
+          </div>
+
+          {/* Estado de Préstamos */}
+          {(() => {
+            const loanBalance = getLoanBalance();
+            const hasLoans = loanBalance.prestado > 0 || loanBalance.devuelto > 0;
+            
+            return hasLoans ? (
+              <div className={cardClass + ' border border-orange-200 rounded-lg shadow-sm p-4 bg-orange-50' + (isDark ? ' bg-orange-900 bg-opacity-20' : '')}>
+                <div className={'text-sm font-medium text-orange-600 mb-2'}>Estado de Préstamos</div>
+                <div className="grid grid-cols-3 gap-3 text-center">
+                  <div>
+                    <div className={'text-xs ' + textSecondaryClass + ' mb-1'}>Prestado</div>
+                    <div className="font-bold text-orange-600 text-sm">
+                      {formatCurrency(loanBalance.prestado)}
+                    </div>
+                  </div>
+                  <div>
+                    <div className={'text-xs ' + textSecondaryClass + ' mb-1'}>Devuelto</div>
+                    <div className="font-bold text-green-600 text-sm">
+                      {formatCurrency(loanBalance.devuelto)}
+                    </div>
+                  </div>
+                  <div>
+                    <div className={'text-xs ' + textSecondaryClass + ' mb-1'}>Pendiente</div>
+                    <div className={'font-bold text-sm ' + (loanBalance.pendiente > 0 ? 'text-red-600' : 'text-green-600')}>
+                      {formatCurrency(loanBalance.pendiente)}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            ) : null;
+          })()}
         </div>
 
-        {/* Formulario */}
-        <div className="bg-white rounded-lg shadow-sm p-6 space-y-4">
-          {/* Monto */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Monto *
-            </label>
-            <input
-              type="number"
-              value={formData.amount}
-              onChange={(e) => setFormData({...formData, amount: e.target.value})}
-              placeholder="0"
-              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
-          </div>
+        {/* Action Buttons */}
+        <div className="grid grid-cols-3 gap-3 mb-6">
+          <button
+            onClick={() => {
+              setFormData({...formData, type: 'income'});
+              setCurrentView('form');
+            }}
+            className="bg-green-500 text-white p-3 rounded-lg flex flex-col items-center justify-center gap-1 font-semibold text-sm"
+          >
+            <Plus size={18} />
+            <span>Entrada</span>
+          </button>
+          
+          <button
+            onClick={() => {
+              setFormData({...formData, type: 'expense'});
+              setCurrentView('form');
+            }}
+            className="bg-red-500 text-white p-3 rounded-lg flex flex-col items-center justify-center gap-1 font-semibold text-sm"
+          >
+            <Minus size={18} />
+            <span>Salida</span>
+          </button>
+          
+          <button
+            onClick={() => {
+              setFormData({...formData, type: 'loan'});
+              setCurrentView('form');
+            }}
+            className="bg-orange-500 text-white p-3 rounded-lg flex flex-col items-center justify-center gap-1 font-semibold text-sm"
+          >
+            <DollarSign size={18} />
+            <span>Préstamo</span>
+          </button>
+        </div>
 
-          {/* Categoría */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              {formData.type === 'loan' ? 'Motivo *' : 'Categoría *'}
-            </label>
-            <select
-              value={formData.category}
-              onChange={(e) => setFormData({...formData, category: e.target.value, customCategory: ''})}
-              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            >
-              <option value="">{formData.type === 'loan' ? 'Seleccionar motivo' : 'Seleccionar categoría'}</option>
-              {(formData.type === 'income' ? incomeCategories : 
-                formData.type === 'expense' ? expenseCategories : 
-                loanCategories).map((cat) => (
-                <option key={cat} value={cat}>{cat}</option>
-              ))}
-            </select>
-          </div>
+        {/* Navigation Buttons */}
+        <div className="grid grid-cols-2 gap-3 mb-6">
+          <button
+            onClick={() => setCurrentView('details')}
+            className="bg-blue-500 text-white p-3 rounded-lg font-semibold text-sm"
+          >
+            Ver Movimientos
+          </button>
+          <button
+            onClick={() => setCurrentView('reports')}
+            className="bg-purple-500 text-white p-3 rounded-lg font-semibold text-sm"
+          >
+            Reportes
+          </button>
+        </div>
 
-          {/* Campo personalizado para "Otros" */}
-          {formData.category === 'Otros' && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Especificar categoría *
-              </label>
-              <input
-                type="text"
-                value={formData.customCategory}
-                onChange={(e) => setFormData({...formData, customCategory: e.target.value})}
-                placeholder="Escribir categoría personalizada"
-                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-            </div>
-          )}
+        {/* Settings Button */}
+        <div className="mb-6">
+          <button
+            onClick={() => setCurrentView('categories')}
+            className="w-full bg-gray-600 text-white p-3 rounded-lg font-semibold text-sm flex items-center justify-center gap-2"
+          >
+            🏷️ Gestionar Categorías
+          </button>
+        </div>
 
-          {/* Destinatario (solo para salidas) */}
-          {formData.type === 'expense' && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                Destinatario *
-              </label>
-              <input
-                type="text"
-                value={formData.recipient}
-                onChange={(e) => setFormData({...formData, recipient: e.target.value})}
-                placeholder="Nombre del destinatario"
-                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-            </div>
-          )}
-
-          {/* Observaciones para préstamos */}
-          {formData.type === 'loan' && (
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
-                {formData.category === 'Prestado' ? 'Observaciones del préstamo *' : 
-                 formData.category === 'Abono' ? 'Observaciones del abono *' : 'Observaciones *'}
-              </label>
-              <textarea
-                value={formData.observations}
-                onChange={(e) => setFormData({...formData, observations: e.target.value})}
-                placeholder={
-                  formData.category === 'Prestado' ? 'Especificar a quién se le prestó y motivo...' :
-                  formData.category === 'Abono' ? 'Especificar de quién viene la devolución...' :
-                  'Escribir observaciones...'
-                }
-                rows={3}
-                className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent resize-none"
-              />
-            </div>
-          )}
-
-          {/* Fecha */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              <Calendar size={16} className="inline mr-1" />
-              Fecha de la operación *
-            </label>
-            <input
-              type="date"
-              value={formData.date}
-              onChange={(e) => setFormData({...formData, date: e.target.value})}
-              className="w-full p-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-            />
-          </div>
-
-          {/* Botones */}
-          <div className="flex gap-3 pt-4">
-            <button
-              type="button"
-              onClick={() => {
-                setCurrentView('home');
-                if (editingId) {
-                  setEditingId(null);
-                  resetForm();
-                }
-              }}
-              className="flex-1 p-3 border border-gray-300 rounded-lg text-gray-700 font-medium"
-            >
-              Cancelar
-            </button>
-            <button
-              type="button"
-              onClick={handleSubmit}
-              disabled={!isFormValid()}
-              className={`flex-1 p-3 rounded-lg text-white font-medium transition-colors ${
-                isFormValid()
-                  ? formData.type === 'income' 
-                    ? 'bg-green-500 hover:bg-green-600' 
-                    : formData.type === 'expense'
-                    ? 'bg-red-500 hover:bg-red-600'
-                    : 'bg-orange-500 hover:bg-orange-600'
-                  : 'bg-gray-400 cursor-not-allowed'
-              }`}
-            >
-              {editingId ? 'Actualizar' : 'Guardar'}
-            </button>
+        {/* Transactions List */}
+        <div className={cardClass + ' rounded-lg shadow-sm p-4'}>
+          <h2 className={'text-lg font-semibold mb-4 ' + textClass}>Últimos Movimientos</h2>
+          
+          <div className="space-y-3">
+            {transactions.slice(-5).reverse().map(transaction => (
+              <div key={transaction.id} className={'flex justify-between items-center p-3 border border-gray-200 rounded-lg'}>
+                <div className="flex items-center gap-3">
+                  <div className={'w-3 h-3 rounded-full ' + 
+                    (transaction.type === 'income' ? 'bg-green-500' : 
+                     transaction.type === 'expense' ? 'bg-red-500' : 'bg-orange-500')
+                  }></div>
+                  <div>
+                    <div className={'font-medium ' + textClass + ' text-sm'}>{transaction.category}</div>
+                    <div className={'text-xs ' + textSecondaryClass}>
+                      {formatDisplayDate(transaction.date)}
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="text-right">
+                  <div className={'font-bold text-sm ' + 
+                    (transaction.type === 'income' ? 'text-green-600' : 
+                     transaction.type === 'expense' ? 'text-red-600' : 'text-orange-600')
+                  }>
+                    {transaction.type === 'income' ? '+' : '-'}{formatCurrency(transaction.amount)}
+                  </div>
+                  <button
+                    onClick={() => handleEdit(transaction)}
+                    className="text-blue-500 text-xs hover:text-blue-700"
+                  >
+                    Editar
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       </div>
