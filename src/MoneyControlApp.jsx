@@ -56,7 +56,24 @@ const MoneyControlApp = () => {
     type: '',
     category: ''
   });
-  const [selectedMonth, setSelectedMonth] = useState('2025-06');
+  const [selectedMonth, setSelectedMonth] = useState(() => {
+    // Forzar junio 2025 como mes actual hasta que sea julio
+    const today = new Date();
+    const currentYear = today.getFullYear();
+    const currentMonth = today.getMonth() + 1; // 0-11 -> 1-12
+    
+    // Si estamos en 2025 y es antes de julio, usar junio
+    if (currentYear === 2025 && currentMonth <= 6) {
+      console.log('Forzando junio 2025 como mes actual');
+      return '2025-06';
+    }
+    
+    // Para otros casos, usar mes actual
+    const monthStr = String(currentMonth).padStart(2, '0');
+    const result = `${currentYear}-${monthStr}`;
+    console.log('Mes inicial calculado:', result);
+    return result;
+  });
 
   // Categorías personalizables
   const [customCategories, setCustomCategories] = useState(() => 
@@ -148,6 +165,31 @@ const MoneyControlApp = () => {
   });
 
   // Funciones principales
+  const recalculateBalance = () => {
+    const calculatedBalance = transactions.reduce((acc, t) => {
+      if (t.type === 'income') return acc + t.amount;
+      if (t.type === 'expense') return acc - t.amount;
+      if (t.type === 'loan') {
+        if (t.category === 'Prestado') return acc - t.amount;
+        if (t.category === 'Abono' || t.category === 'Devolución') return acc + t.amount;
+      }
+      return acc;
+    }, 0);
+    
+    if (calculatedBalance !== balance) {
+      setBalance(calculatedBalance);
+      saveToStorage('balance', calculatedBalance);
+      console.log('Balance recalculado:', calculatedBalance);
+    }
+    
+    return calculatedBalance;
+  };
+
+  // Recalcular balance cuando cambien las transacciones
+  React.useEffect(() => {
+    recalculateBalance();
+  }, [transactions]);
+
   const toggleDarkMode = () => {
     const newDarkMode = !isDark;
     setIsDark(newDarkMode);
@@ -310,13 +352,17 @@ const MoneyControlApp = () => {
   };
 
   const getMonthlyData = (monthYear) => {
+    console.log('Analizando mes:', monthYear);
+    console.log('Transacciones disponibles:', transactions.map(t => ({date: t.date, category: t.category, amount: t.amount})));
+    
     const monthTransactions = transactions.filter(t => t.date.startsWith(monthYear));
+    console.log('Transacciones del mes:', monthTransactions);
     
     const income = monthTransactions.filter(t => t.type === 'income').reduce((sum, t) => sum + t.amount, 0);
     const expense = monthTransactions.filter(t => t.type === 'expense').reduce((sum, t) => sum + t.amount, 0);
     const loans = monthTransactions.filter(t => t.type === 'loan').reduce((sum, t) => sum + t.amount, 0);
     
-    return {
+    const result = {
       transactions: monthTransactions,
       income,
       expense,
@@ -324,10 +370,20 @@ const MoneyControlApp = () => {
       net: income - expense - loans,
       total: monthTransactions.length
     };
+    
+    console.log('Datos del mes calculados:', result);
+    return result;
   };
 
-  const getExpensesByCategory = () => {
-    const expenseTransactions = transactions.filter(t => t.type === 'expense');
+  const getExpensesByCategory = (monthYear = null) => {
+    let expenseTransactions = transactions.filter(t => t.type === 'expense');
+    
+    // Si se proporciona un mes, filtrar solo por ese mes
+    if (monthYear) {
+      expenseTransactions = expenseTransactions.filter(t => t.date.startsWith(monthYear));
+      console.log('Gastos filtrados para', monthYear, ':', expenseTransactions);
+    }
+    
     const categoryTotals = {};
     
     expenseTransactions.forEach(t => {
@@ -704,9 +760,23 @@ const MoneyControlApp = () => {
 
   // VISTA DE REPORTES
   if (currentView === 'reports') {
+    console.log('Vista reportes - selectedMonth:', selectedMonth);
+    
     const currentMonthData = getMonthlyData(selectedMonth);
-    const expensesByCategory = getExpensesByCategory();
-    const monthName = new Date(selectedMonth + '-01').toLocaleDateString('es-PY', { month: 'long', year: 'numeric' });
+    const expensesByCategory = getExpensesByCategory(selectedMonth); // Filtrar por mes
+    
+    // Corregir el cálculo del nombre del mes
+    const [year, month] = selectedMonth.split('-');
+    const monthNames = [
+      'enero', 'febrero', 'marzo', 'abril', 'mayo', 'junio',
+      'julio', 'agosto', 'septiembre', 'octubre', 'noviembre', 'diciembre'
+    ];
+    const monthName = `${monthNames[parseInt(month) - 1]} de ${year}`;
+    
+    console.log('Mes seleccionado:', selectedMonth);
+    console.log('Nombre del mes corregido:', monthName);
+    console.log('Datos del mes actual:', currentMonthData);
+    console.log('Gastos por categoría del mes:', expensesByCategory);
 
     return (
       <div className={'min-h-screen ' + bgClass + ' p-4'}>
@@ -939,11 +1009,11 @@ const MoneyControlApp = () => {
             </div>
           )}
 
-          {/* Resumen General con gráficos circulares */}
+          {/* Resumen del Mes con gráficos circulares */}
           <div className={cardClass + ' rounded-lg shadow-sm p-4'}>
-            <h3 className={'font-semibold ' + textClass + ' mb-4'}>Resumen General</h3>
+            <h3 className={'font-semibold ' + textClass + ' mb-4'}>Resumen del Mes</h3>
             
-            {/* Indicador visual del balance */}
+            {/* Indicador visual del balance del mes */}
             <div className="mb-6">
               <div className="flex items-center justify-center mb-3">
                 <div className="relative w-32 h-32">
@@ -960,7 +1030,7 @@ const MoneyControlApp = () => {
                       cx="50"
                       cy="50"
                       r="45"
-                      stroke={balance >= 0 ? '#10b981' : '#ef4444'}
+                      stroke={currentMonthData.net >= 0 ? '#10b981' : '#ef4444'}
                       strokeWidth="6"
                       fill="none"
                       strokeDasharray={`${2 * Math.PI * 45}`}
@@ -971,41 +1041,76 @@ const MoneyControlApp = () => {
                   </svg>
                   <div className="absolute inset-0 flex items-center justify-center">
                     <div className="text-center">
-                      <div className={'text-lg font-bold ' + (balance >= 0 ? 'text-green-600' : 'text-red-600')}>
+                      <div className={'text-lg font-bold ' + (currentMonthData.net >= 0 ? 'text-green-600' : 'text-red-600')}>
                         ₲
                       </div>
-                      <div className={'text-xs ' + textSecondaryClass}>Balance</div>
+                      <div className={'text-xs ' + textSecondaryClass}>Mes</div>
                     </div>
                   </div>
                 </div>
               </div>
               
               <div className="text-center">
-                <div className={'text-xs ' + textSecondaryClass + ' mb-1'}>Balance Total</div>
-                <div className={'font-bold text-xl ' + (balance >= 0 ? 'text-green-600' : 'text-red-600')}>
-                  {formatCurrency(balance)}
+                <div className={'text-xs ' + textSecondaryClass + ' mb-1'}>Balance del Mes</div>
+                <div className={'font-bold text-xl ' + (currentMonthData.net >= 0 ? 'text-green-600' : 'text-red-600')}>
+                  {formatCurrency(currentMonthData.net)}
                 </div>
               </div>
             </div>
 
-            {/* Métricas adicionales */}
+            {/* Métricas del mes */}
             <div className="grid grid-cols-2 gap-4">
               <div className="text-center p-3 rounded-lg bg-blue-50" style={{backgroundColor: isDark ? '#1e3a8a20' : '#dbeafe'}}>
-                <div className={'text-xs ' + textSecondaryClass + ' mb-1'}>Total Transacciones</div>
+                <div className={'text-xs ' + textSecondaryClass + ' mb-1'}>Movimientos</div>
                 <div className="font-bold text-2xl text-blue-600">
-                  {transactions.length}
+                  {currentMonthData.total}
                 </div>
-                <div className={'text-xs ' + textSecondaryClass}>registradas</div>
+                <div className={'text-xs ' + textSecondaryClass}>este mes</div>
               </div>
               
               <div className="text-center p-3 rounded-lg bg-purple-50" style={{backgroundColor: isDark ? '#581c8720' : '#f3e8ff'}}>
-                <div className={'text-xs ' + textSecondaryClass + ' mb-1'}>Promedio Mensual</div>
+                <div className={'text-xs ' + textSecondaryClass + ' mb-1'}>Promedio Diario</div>
                 <div className="font-bold text-2xl text-purple-600">
-                  {Math.round(transactions.length / Math.max(1, new Set(transactions.map(t => t.date.substring(0, 7))).size))}
+                  {currentMonthData.total > 0 ? Math.round(currentMonthData.total / 30) : 0}
                 </div>
-                <div className={'text-xs ' + textSecondaryClass}>por mes</div>
+                <div className={'text-xs ' + textSecondaryClass}>por día</div>
               </div>
             </div>
+
+            {/* Desglose de actividad del mes */}
+            {currentMonthData.total > 0 && (
+              <div className="mt-4 pt-4 border-t" style={{borderColor: isDark ? '#374151' : '#e5e7eb'}}>
+                <div className="grid grid-cols-3 gap-3 text-center">
+                  <div>
+                    <div className={'text-xs ' + textSecondaryClass + ' mb-1'}>+ Entradas</div>
+                    <div className="font-bold text-sm text-green-600">
+                      {currentMonthData.transactions.filter(t => t.type === 'income').length}
+                    </div>
+                  </div>
+                  <div>
+                    <div className={'text-xs ' + textSecondaryClass + ' mb-1'}>- Salidas</div>
+                    <div className="font-bold text-sm text-red-600">
+                      {currentMonthData.transactions.filter(t => t.type === 'expense').length}
+                    </div>
+                  </div>
+                  <div>
+                    <div className={'text-xs ' + textSecondaryClass + ' mb-1'}>💰 Préstamos</div>
+                    <div className="font-bold text-sm text-orange-600">
+                      {currentMonthData.transactions.filter(t => t.type === 'loan').length}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            {/* Mensaje si no hay datos del mes */}
+            {currentMonthData.total === 0 && (
+              <div className="mt-4 pt-4 border-t text-center" style={{borderColor: isDark ? '#374151' : '#e5e7eb'}}>
+                <p className={textSecondaryClass + ' text-sm'}>
+                  No hay transacciones registradas en {monthName.toLowerCase()}
+                </p>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -1212,9 +1317,18 @@ const MoneyControlApp = () => {
             </button>
           </div>
           
-          {/* Balance Card */}
+          {/* Balance Card con botón de recálculo */}
           <div className={cardClass + ' border border-gray-200 rounded-lg shadow-sm p-4 mb-4'}>
-            <div className={'text-sm ' + textSecondaryClass + ' mb-1'}>Balance Total</div>
+            <div className="flex items-center justify-between mb-2">
+              <div className={'text-sm ' + textSecondaryClass}>Balance Total</div>
+              <button
+                onClick={recalculateBalance}
+                className={'text-xs px-2 py-1 rounded ' + (isDark ? 'bg-gray-700 text-gray-300 hover:bg-gray-600' : 'bg-gray-100 text-gray-600 hover:bg-gray-200')}
+                title="Recalcular balance"
+              >
+                🔄
+              </button>
+            </div>
             <div className={'text-2xl font-bold ' + (balance >= 0 ? 'text-green-600' : 'text-red-600')}>
               {formatCurrency(balance)}
             </div>
