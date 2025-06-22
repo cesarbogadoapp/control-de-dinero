@@ -1249,46 +1249,81 @@ const MoneyControlApp = () => {
                 )}
               </div>
             ) : (
-              filteredTransactions
-                .sort((a, b) => new Date(b.date) - new Date(a.date))
-                .map(transaction => (
-                  <div key={transaction.id} className={cardClass + ' rounded-lg shadow-sm p-4'}>
-                    <div className="flex justify-between items-start mb-2">
-                      <div className="flex-1">
-                        <div className="flex items-center gap-2 mb-1">
-                          <div className={'w-3 h-3 rounded-full ' + 
-                            (transaction.type === 'income' ? 'bg-green-500' : 
-                             transaction.type === 'expense' ? 'bg-red-500' : 'bg-orange-500')
-                          }></div>
-                          <span className={'font-semibold ' + textClass}>
-                            {transaction.category}
-                          </span>
-                          <span className={'text-xs ' + textSecondaryClass}>
-                            {formatDisplayDate(transaction.date)}
-                          </span>
-                        </div>
-                        
-                        <div className={'text-lg font-bold ' + 
-                          (transaction.type === 'income' ? 'text-green-600' : 
-                           transaction.type === 'expense' ? 'text-red-600' : 'text-orange-600')
+              (() => {
+                // Agrupar transacciones por fecha
+                const groupedByDate = filteredTransactions
+                  .sort((a, b) => new Date(b.date) - new Date(a.date))
+                  .reduce((groups, transaction) => {
+                    const date = transaction.date;
+                    if (!groups[date]) {
+                      groups[date] = [];
+                    }
+                    groups[date].push(transaction);
+                    return groups;
+                  }, {});
+
+                return Object.entries(groupedByDate).map(([date, transactionsOfDay]) => (
+                  <div key={date} className="space-y-2">
+                    {/* Encabezado de fecha */}
+                    <div className={'flex items-center gap-2 px-3 py-2 rounded-lg ' + (isDark ? 'bg-gray-700' : 'bg-gray-100')}>
+                      <div className="w-3 h-3 bg-blue-500 rounded-full"></div>
+                      <span className={'font-semibold text-sm ' + textClass}>
+                        {new Date(date + 'T00:00:00').toLocaleDateString('es-PY', { 
+                          weekday: 'long',
+                          day: 'numeric', 
+                          month: 'long', 
+                          year: 'numeric' 
+                        })}
+                      </span>
+                      <span className={'text-xs ' + textSecondaryClass}>
+                        ({transactionsOfDay.length} {transactionsOfDay.length === 1 ? 'movimiento' : 'movimientos'})
+                      </span>
+                    </div>
+
+                    {/* Transacciones del día */}
+                    <div className="space-y-2 ml-4">
+                      {transactionsOfDay.map(transaction => (
+                        <div key={transaction.id} className={cardClass + ' rounded-lg shadow-sm p-4 border-l-4 ' + 
+                          (transaction.type === 'income' ? 'border-green-500' : 
+                           transaction.type === 'expense' ? 'border-red-500' : 'border-orange-500')
                         }>
-                          {transaction.type === 'income' ? '+' : '-'}{formatCurrency(transaction.amount)}
+                          <div className="flex justify-between items-start">
+                            <div className="flex-1">
+                              <div className="flex items-center gap-2 mb-1">
+                                <div className={'w-3 h-3 rounded-full ' + 
+                                  (transaction.type === 'income' ? 'bg-green-500' : 
+                                   transaction.type === 'expense' ? 'bg-red-500' : 'bg-orange-500')
+                                }></div>
+                                <span className={'font-semibold text-sm ' + textClass}>
+                                  {transaction.category}
+                                </span>
+                              </div>
+                              
+                              <div className={'text-lg font-bold mb-1 ' + 
+                                (transaction.type === 'income' ? 'text-green-600' : 
+                                 transaction.type === 'expense' ? 'text-red-600' : 'text-orange-600')
+                              }>
+                                {transaction.type === 'income' ? '+' : '-'}{formatCurrency(transaction.amount)}
+                              </div>
+                              
+                              {transaction.observations && (
+                                <p className={'text-sm ' + textSecondaryClass}>{transaction.observations}</p>
+                              )}
+                            </div>
+                            
+                            <button
+                              onClick={() => handleEdit(transaction)}
+                              className="text-blue-500 text-sm font-medium hover:text-blue-700 ml-3"
+                            >
+                              Editar
+                            </button>
+                          </div>
                         </div>
-                        
-                        {transaction.observations && (
-                          <p className={'text-sm ' + textSecondaryClass + ' mt-1'}>{transaction.observations}</p>
-                        )}
-                      </div>
-                      
-                      <button
-                        onClick={() => handleEdit(transaction)}
-                        className="text-blue-500 text-sm font-medium hover:text-blue-700"
-                      >
-                        Editar
-                      </button>
+                      ))}
                     </div>
                   </div>
-                ))
+                ));
+              })()
             )}
           </div>
         </div>
