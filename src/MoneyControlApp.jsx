@@ -2,6 +2,119 @@ import React, { useState } from 'react';
 import { Plus, Minus, DollarSign, Moon, Sun } from 'lucide-react';
 
 const MoneyControlApp = () => {
+  // Agregar manifest PWA cuando se monte el componente
+  React.useEffect(() => {
+    // Crear el manifest para PWA
+    const manifest = {
+      name: "Control de Dinero",
+      short_name: "Guaraní",
+      description: "Aplicación para gestionar tus finanzas personales",
+      start_url: "/",
+      display: "standalone",
+      background_color: "#ffffff",
+      theme_color: "#10b981",
+      orientation: "portrait",
+      icons: [
+        {
+          src: "data:image/svg+xml;base64," + btoa(`
+            <svg width="192" height="192" viewBox="0 0 192 192" xmlns="http://www.w3.org/2000/svg">
+              <rect width="192" height="192" rx="32" fill="#10b981"/>
+              <text x="96" y="130" text-anchor="middle" fill="white" font-family="Arial, sans-serif" font-weight="bold" font-size="120">G</text>
+            </svg>
+          `),
+          sizes: "192x192",
+          type: "image/svg+xml"
+        },
+        {
+          src: "data:image/svg+xml;base64," + btoa(`
+            <svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+              <rect width="512" height="512" rx="85" fill="#10b981"/>
+              <text x="256" y="340" text-anchor="middle" fill="white" font-family="Arial, sans-serif" font-weight="bold" font-size="320">G</text>
+            </svg>
+          `),
+          sizes: "512x512",
+          type: "image/svg+xml"
+        }
+      ]
+    };
+
+    // Crear y agregar el manifest al DOM
+    const manifestBlob = new Blob([JSON.stringify(manifest)], { type: 'application/json' });
+    const manifestURL = URL.createObjectURL(manifestBlob);
+    
+    let manifestLink = document.querySelector('link[rel="manifest"]');
+    if (!manifestLink) {
+      manifestLink = document.createElement('link');
+      manifestLink.rel = 'manifest';
+      document.head.appendChild(manifestLink);
+    }
+    manifestLink.href = manifestURL;
+
+    // Agregar meta tags para PWA
+    const addMetaTag = (name, content, property = false) => {
+      let meta = document.querySelector(`meta[${property ? 'property' : 'name'}="${name}"]`);
+      if (!meta) {
+        meta = document.createElement('meta');
+        meta.setAttribute(property ? 'property' : 'name', name);
+        document.head.appendChild(meta);
+      }
+      meta.content = content;
+    };
+
+    addMetaTag('theme-color', '#10b981');
+    addMetaTag('apple-mobile-web-app-capable', 'yes');
+    addMetaTag('apple-mobile-web-app-status-bar-style', 'default');
+    addMetaTag('apple-mobile-web-app-title', 'Guaraní');
+    addMetaTag('mobile-web-app-capable', 'yes');
+    addMetaTag('application-name', 'Control de Dinero');
+
+    // Agregar apple-touch-icon
+    let appleIcon = document.querySelector('link[rel="apple-touch-icon"]');
+    if (!appleIcon) {
+      appleIcon = document.createElement('link');
+      appleIcon.rel = 'apple-touch-icon';
+      document.head.appendChild(appleIcon);
+    }
+    appleIcon.href = "data:image/svg+xml;base64," + btoa(`
+      <svg width="180" height="180" viewBox="0 0 180 180" xmlns="http://www.w3.org/2000/svg">
+        <rect width="180" height="180" rx="30" fill="#10b981"/>
+        <text x="90" y="125" text-anchor="middle" fill="white" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-weight="600" font-size="110">G</text>
+      </svg>
+    `);
+
+    return () => {
+      URL.revokeObjectURL(manifestURL);
+    };
+  }, []);
+
+  // Effect para detectar evento de instalación PWA
+  React.useEffect(() => {
+    const handleBeforeInstallPrompt = (e) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      setShowInstallBanner(true);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    };
+  }, []);
+
+  const handleInstallApp = async () => {
+    if (!deferredPrompt) return;
+
+    deferredPrompt.prompt();
+    const { outcome } = await deferredPrompt.userChoice;
+    
+    if (outcome === 'accepted') {
+      setShowInstallBanner(false);
+    }
+    
+    setDeferredPrompt(null);
+  };
+
   // Funciones utilitarias
   const getTodayDate = () => {
     const today = new Date();
@@ -50,6 +163,18 @@ const MoneyControlApp = () => {
   const [editingId, setEditingId] = useState(null);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
+  
+  // Estados para splash screen y autenticación
+  const [showSplash, setShowSplash] = useState(true);
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [authError, setAuthError] = useState('');
+  const [lastActivity, setLastActivity] = useState(Date.now());
+  const [showPinInput, setShowPinInput] = useState(false);
+  const [pinInput, setPinInput] = useState('');
+  const [storedPin, setStoredPin] = useState(() => loadFromStorage('userPin', ''));
+  const [isSettingNewPin, setIsSettingNewPin] = useState(false);
+  const [deferredPrompt, setDeferredPrompt] = useState(null);
+  const [showInstallBanner, setShowInstallBanner] = useState(false);
   const [filters, setFilters] = useState({
     startDate: '',
     endDate: '',
@@ -185,10 +310,138 @@ const MoneyControlApp = () => {
     return calculatedBalance;
   };
 
+  // Funciones para autenticación y seguridad
+  const updateActivity = () => {
+    setLastActivity(Date.now());
+  };
+
+  const requestBiometricAuth = async () => {
+    try {
+      // Verificar si hay API de autenticación disponible
+      if ('navigator' in window && 'credentials' in navigator && 'create' in navigator.credentials) {
+        const credential = await navigator.credentials.create({
+          publicKey: {
+            challenge: new Uint8Array(32),
+            rp: { name: "Control de Dinero" },
+            user: {
+              id: new Uint8Array(16),
+              name: "usuario",
+              displayName: "Usuario"
+            },
+            pubKeyCredParams: [{ alg: -7, type: "public-key" }],
+            authenticatorSelection: {
+              authenticatorAttachment: "platform",
+              userVerification: "required"
+            },
+            timeout: 30000
+          }
+        });
+        
+        if (credential) {
+          setIsAuthenticated(true);
+          setAuthError('');
+          return true;
+        }
+      }
+    } catch (error) {
+      console.log('Biometric auth not available:', error);
+    }
+    
+    // Si no hay biometría disponible, mostrar PIN
+    setShowPinInput(true);
+    return false;
+  };
+
+  const handlePinSubmit = () => {
+    if (!storedPin) {
+      // Primera vez - configurar PIN
+      if (pinInput.length >= 4) {
+        setStoredPin(pinInput);
+        saveToStorage('userPin', pinInput);
+        setIsAuthenticated(true);
+        setShowPinInput(false);
+        setPinInput('');
+        setIsSettingNewPin(false);
+        setAuthError('');
+      } else {
+        setAuthError('El PIN debe tener al menos 4 dígitos');
+      }
+    } else {
+      // Verificar PIN existente
+      if (pinInput === storedPin) {
+        setIsAuthenticated(true);
+        setShowPinInput(false);
+        setPinInput('');
+        setAuthError('');
+      } else {
+        setAuthError('PIN incorrecto');
+        setPinInput('');
+      }
+    }
+  };
+
+  const lockApp = () => {
+    setIsAuthenticated(false);
+    setShowPinInput(false);
+    setPinInput('');
+    setAuthError('');
+  };
+
+  // Effect para el splash screen
+  React.useEffect(() => {
+    const timer = setTimeout(() => {
+      setShowSplash(false);
+      // Intentar autenticación después del splash
+      setTimeout(() => {
+        if (!storedPin) {
+          setIsSettingNewPin(true);
+          setShowPinInput(true);
+        } else {
+          requestBiometricAuth();
+        }
+      }, 100);
+    }, 1000);
+
+    return () => clearTimeout(timer);
+  }, []);
+
+  // Effect para auto-bloqueo por inactividad
+  React.useEffect(() => {
+    if (!isAuthenticated) return;
+
+    const checkInactivity = () => {
+      const now = Date.now();
+      const inactiveTime = now - lastActivity;
+      const tenMinutes = 10 * 60 * 1000; // 10 minutos en millisegundos
+
+      if (inactiveTime > tenMinutes) {
+        lockApp();
+      }
+    };
+
+    const interval = setInterval(checkInactivity, 30000); // Verificar cada 30 segundos
+
+    // Agregar event listeners para detectar actividad
+    const events = ['click', 'touch', 'keydown', 'scroll', 'mousemove'];
+    
+    events.forEach(event => {
+      document.addEventListener(event, updateActivity, { passive: true });
+    });
+
+    return () => {
+      clearInterval(interval);
+      events.forEach(event => {
+        document.removeEventListener(event, updateActivity);
+      });
+    };
+  }, [isAuthenticated, lastActivity]);
+
   // Recalcular balance cuando cambien las transacciones
   React.useEffect(() => {
-    recalculateBalance();
-  }, [transactions]);
+    if (isAuthenticated) {
+      recalculateBalance();
+    }
+  }, [transactions, isAuthenticated]);
 
   const toggleDarkMode = () => {
     const newDarkMode = !isDark;
@@ -482,6 +735,148 @@ const MoneyControlApp = () => {
   const textSecondaryClass = isDark ? 'text-gray-400' : 'text-gray-600';
   const borderClass = isDark ? 'border-gray-600' : 'border-gray-300';
   const inputClass = isDark ? 'bg-gray-700 text-white border-gray-600' : 'bg-white text-gray-900 border-gray-300';
+
+  // SPLASH SCREEN
+  if (showSplash) {
+    return (
+      <div className={'min-h-screen flex items-center justify-center ' + bgClass}>
+        <div className="text-center animate-pulse">
+          {/* Logo/Icono grande - letra G verde */}
+          <div className="w-24 h-24 mx-auto mb-4 rounded-2xl bg-green-500 flex items-center justify-center shadow-lg">
+            <span className="text-white text-4xl font-bold">G</span>
+          </div>
+          
+          {/* Nombre de la app */}
+          <h1 className={'text-2xl font-bold mb-2 ' + textClass}>Control de Dinero</h1>
+          <p className={textSecondaryClass + ' text-sm'}>Gestiona tus finanzas</p>
+          
+          {/* Spinner de carga */}
+          <div className="mt-6">
+            <div className={'w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto'}></div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // PANTALLA DE AUTENTICACIÓN
+  if (!isAuthenticated) {
+    return (
+      <div className={'min-h-screen flex items-center justify-center ' + bgClass + ' p-4'}>
+        <div className="max-w-sm w-full">
+          <div className={cardClass + ' rounded-2xl shadow-xl p-8'}>
+            {/* Logo */}
+            <div className="text-center mb-8">
+              <div className="w-16 h-16 mx-auto mb-4 rounded-xl bg-green-500 flex items-center justify-center shadow-lg">
+                <span className="text-white text-2xl font-bold">G</span>
+              </div>
+              <h2 className={'text-xl font-bold ' + textClass}>
+                {isSettingNewPin ? 'Configurar PIN' : 'Desbloquear App'}
+              </h2>
+              <p className={textSecondaryClass + ' text-sm mt-2'}>
+                {isSettingNewPin ? 
+                  'Crea un PIN de seguridad para proteger tu información' : 
+                  'Ingresa tu PIN para acceder a la aplicación'
+                }
+              </p>
+            </div>
+
+            {showPinInput && (
+              <div className="space-y-4">
+                {/* Entrada del PIN */}
+                <div>
+                  <label className={'block text-sm font-medium ' + textClass + ' mb-2'}>
+                    {isSettingNewPin ? 'Nuevo PIN (mínimo 4 dígitos)' : 'PIN de seguridad'}
+                  </label>
+                  <input
+                    type="password"
+                    value={pinInput}
+                    onChange={(e) => {
+                      setPinInput(e.target.value);
+                      setAuthError('');
+                    }}
+                    onKeyPress={(e) => e.key === 'Enter' && handlePinSubmit()}
+                    className={'w-full p-3 border ' + inputClass + ' rounded-lg text-center text-lg tracking-widest'}
+                    placeholder="••••"
+                    maxLength="6"
+                    autoFocus
+                  />
+                </div>
+
+                {/* Error message */}
+                {authError && (
+                  <div className="text-red-500 text-sm text-center bg-red-50 p-2 rounded-lg">
+                    {authError}
+                  </div>
+                )}
+
+                {/* Botones */}
+                <div className="space-y-3">
+                  <button
+                    onClick={handlePinSubmit}
+                    disabled={pinInput.length < 4}
+                    className={'w-full p-3 rounded-lg font-medium ' + 
+                      (pinInput.length >= 4 ? 
+                        'bg-blue-500 hover:bg-blue-600 text-white' : 
+                        'bg-gray-300 text-gray-500 cursor-not-allowed')
+                    }
+                  >
+                    {isSettingNewPin ? 'Configurar PIN' : 'Desbloquear'}
+                  </button>
+
+                  {!isSettingNewPin && (
+                    <button
+                      onClick={requestBiometricAuth}
+                      className={'w-full p-3 border-2 border-blue-500 text-blue-500 rounded-lg font-medium hover:bg-blue-50 ' + 
+                        (isDark ? 'hover:bg-blue-900 hover:bg-opacity-20' : '')
+                      }
+                    >
+                      🔐 Usar Biometría
+                    </button>
+                  )}
+                </div>
+
+                {/* Teclado numérico visual */}
+                <div className="grid grid-cols-3 gap-3 mt-6">
+                  {[1,2,3,4,5,6,7,8,9,'',0,'⌫'].map((num, index) => (
+                    <button
+                      key={index}
+                      onClick={() => {
+                        if (num === '⌫') {
+                          setPinInput(prev => prev.slice(0, -1));
+                        } else if (num !== '' && pinInput.length < 6) {
+                          setPinInput(prev => prev + num);
+                        }
+                      }}
+                      disabled={num === ''}
+                      className={'p-4 rounded-lg font-bold text-lg ' + 
+                        (num === '' ? 
+                          'invisible' : 
+                          (isDark ? 
+                            'bg-gray-700 hover:bg-gray-600 text-white' : 
+                            'bg-gray-100 hover:bg-gray-200 text-gray-800'
+                          )
+                        )
+                      }
+                    >
+                      {num}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {!showPinInput && (
+              <div className="text-center">
+                <div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full mx-auto mb-4"></div>
+                <p className={textSecondaryClass + ' text-sm'}>Verificando autenticación...</p>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // VISTA DEL GESTOR DE CATEGORÍAS
   if (currentView === 'categories') {
@@ -1301,9 +1696,13 @@ const MoneyControlApp = () => {
                               
                               <div className={'text-lg font-bold mb-1 ' + 
                                 (transaction.type === 'income' ? 'text-green-600' : 
-                                 transaction.type === 'expense' ? 'text-red-600' : 'text-orange-600')
+                                 transaction.type === 'expense' ? 'text-red-600' : 
+                                 (transaction.category === 'Abono' || transaction.category === 'Devolución' ? 'text-green-600' : 'text-orange-600'))
                               }>
-                                {transaction.type === 'income' ? '+' : '-'}{formatCurrency(transaction.amount)}
+                                {transaction.type === 'income' ? '+' : 
+                                 transaction.type === 'expense' ? '-' : 
+                                 (transaction.category === 'Abono' || transaction.category === 'Devolución' ? '+' : '-')
+                                }{formatCurrency(transaction.amount)}
                               </div>
                               
                               {transaction.observations && (
@@ -1338,7 +1737,14 @@ const MoneyControlApp = () => {
         {/* Header */}
         <div className="text-center mb-6">
           <div className="flex items-center justify-between mb-2">
-            <div></div>
+            {/* Botón de bloqueo manual */}
+            <button
+              onClick={lockApp}
+              className={cardClass + ' p-2 rounded-lg shadow-sm transition-all duration-200 hover:scale-105'}
+              title="Bloquear aplicación"
+            >
+              🔒
+            </button>
             <h1 className={'text-2xl font-bold ' + textClass}>Control de Dinero</h1>
             <button
               onClick={toggleDarkMode}
@@ -1402,6 +1808,37 @@ const MoneyControlApp = () => {
           })()}
         </div>
 
+        {/* Install App Banner */}
+        {showInstallBanner && (
+          <div className={cardClass + ' rounded-lg shadow-sm p-4 mb-4 border-l-4 border-green-500'}>
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-lg bg-green-500 flex items-center justify-center">
+                  <span className="text-white text-lg font-bold">G</span>
+                </div>
+                <div>
+                  <div className={'font-semibold ' + textClass + ' text-sm'}>Instalar Control de Dinero</div>
+                  <div className={'text-xs ' + textSecondaryClass}>Úsala como una app nativa</div>
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => setShowInstallBanner(false)}
+                  className={'text-xs px-2 py-1 rounded ' + textSecondaryClass}
+                >
+                  ✕
+                </button>
+                <button
+                  onClick={handleInstallApp}
+                  className="text-xs px-3 py-1 bg-green-500 text-white rounded font-medium"
+                >
+                  Instalar
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Action Buttons */}
         <div className="grid grid-cols-3 gap-3 mb-6">
           <button
@@ -1464,6 +1901,34 @@ const MoneyControlApp = () => {
           </button>
         </div>
 
+        {/* Security Settings */}
+        <div className="mb-6">
+          <div className={cardClass + ' rounded-lg shadow-sm p-4'}>
+            <h3 className={'font-semibold ' + textClass + ' mb-3'}>Configuración de Seguridad</h3>
+            <div className="space-y-2">
+              <button
+                onClick={() => {
+                  setIsSettingNewPin(true);
+                  setShowPinInput(true);
+                  setIsAuthenticated(false);
+                }}
+                className={'w-full p-2 text-left text-sm ' + textSecondaryClass + ' hover:' + textClass + ' transition-colors'}
+              >
+                🔑 Cambiar PIN
+              </button>
+              <button
+                onClick={lockApp}
+                className={'w-full p-2 text-left text-sm ' + textSecondaryClass + ' hover:' + textClass + ' transition-colors'}
+              >
+                🔒 Bloquear ahora
+              </button>
+              <div className={'text-xs ' + textSecondaryClass + ' pt-2 border-t ' + borderClass}>
+                Auto-bloqueo: 10 minutos de inactividad
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* Transactions List */}
         <div className={cardClass + ' rounded-lg shadow-sm p-4'}>
           <h2 className={'text-lg font-semibold mb-4 ' + textClass}>Últimos Movimientos</h2>
@@ -1487,9 +1952,13 @@ const MoneyControlApp = () => {
                 <div className="text-right">
                   <div className={'font-bold text-sm ' + 
                     (transaction.type === 'income' ? 'text-green-600' : 
-                     transaction.type === 'expense' ? 'text-red-600' : 'text-orange-600')
+                     transaction.type === 'expense' ? 'text-red-600' : 
+                     (transaction.category === 'Abono' || transaction.category === 'Devolución' ? 'text-green-600' : 'text-orange-600'))
                   }>
-                    {transaction.type === 'income' ? '+' : '-'}{formatCurrency(transaction.amount)}
+                    {transaction.type === 'income' ? '+' : 
+                     transaction.type === 'expense' ? '-' : 
+                     (transaction.category === 'Abono' || transaction.category === 'Devolución' ? '+' : '-')
+                    }{formatCurrency(transaction.amount)}
                   </div>
                   <button
                     onClick={() => handleEdit(transaction)}
