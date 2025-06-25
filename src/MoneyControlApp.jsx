@@ -347,7 +347,7 @@ const MoneyControlApp = () => {
               authenticatorAttachment: "platform",
               userVerification: "required"
             },
-            timeout: 30000
+            timeout: 3000 // 3 segundos máximo
           }
         });
         
@@ -359,10 +359,10 @@ const MoneyControlApp = () => {
         }
       }
     } catch (error) {
-      console.log('Biometric auth not available:', error);
+      console.log('Biometric auth failed or not available:', error);
     }
     
-    // Si no hay biometría disponible, mostrar PIN
+    // Si falla biometría, pasar automáticamente al PIN
     setShowPinInput(true);
     return false;
   };
@@ -399,17 +399,20 @@ const MoneyControlApp = () => {
 
   const lockApp = () => {
     setIsAuthenticated(false);
-    setShowPinInput(false);
+    setShowPinInput(false); // EMPEZAR CON BIOMETRÍA
     setPinInput('');
     setAuthError('');
     setSessionExpired(true);
     setSessionClosed(false);
-    // No limpiar lastActivity aquí para distinguir entre bloqueo manual y automático
+    // Intentar biometría inmediatamente después de bloquear
+    setTimeout(() => {
+      requestBiometricAuth();
+    }, 100);
   };
 
   const logoutApp = () => {
     setIsAuthenticated(false);
-    setShowPinInput(false);
+    setShowPinInput(false); // EMPEZAR CON BIOMETRÍA
     setPinInput('');
     setAuthError('');
     setSessionExpired(false);
@@ -417,6 +420,10 @@ const MoneyControlApp = () => {
     setShowLogoutConfirm(false);
     // Limpiar completamente la sesión
     saveToStorage('lastActivity', 0);
+    // Intentar biometría inmediatamente después de cerrar sesión
+    setTimeout(() => {
+      requestBiometricAuth();
+    }, 100);
   };
 
   // Effect para el splash screen
@@ -434,7 +441,7 @@ const MoneyControlApp = () => {
           setIsAuthenticated(true);
           updateActivity();
         } else {
-          // Sesión expirada o cerrada - pedir autenticación
+          // Sesión expirada o cerrada - INTENTAR BIOMETRÍA PRIMERO
           requestBiometricAuth();
         }
       }, 100);
