@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, Minus, DollarSign, Moon, Sun } from 'lucide-react';
+import { Plus, Minus, DollarSign, Moon, Sun, Lock, Key, LogOut, Shield, Settings } from 'lucide-react';
 
 const MoneyControlApp = () => {
   // Agregar manifest PWA cuando se monte el componente
@@ -168,11 +168,14 @@ const MoneyControlApp = () => {
   const [showSplash, setShowSplash] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [authError, setAuthError] = useState('');
-  const [lastActivity, setLastActivity] = useState(Date.now());
+  const [lastActivity, setLastActivity] = useState(() => loadFromStorage('lastActivity', Date.now()));
   const [showPinInput, setShowPinInput] = useState(false);
   const [pinInput, setPinInput] = useState('');
   const [storedPin, setStoredPin] = useState(() => loadFromStorage('userPin', ''));
   const [isSettingNewPin, setIsSettingNewPin] = useState(false);
+  const [sessionExpired, setSessionExpired] = useState(false);
+  const [sessionClosed, setSessionClosed] = useState(false);
+  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState(null);
   const [showInstallBanner, setShowInstallBanner] = useState(false);
   const [filters, setFilters] = useState({
@@ -312,7 +315,18 @@ const MoneyControlApp = () => {
 
   // Funciones para autenticación y seguridad
   const updateActivity = () => {
-    setLastActivity(Date.now());
+    const now = Date.now();
+    setLastActivity(now);
+    saveToStorage('lastActivity', now);
+  };
+
+  const checkSessionValidity = () => {
+    const savedActivity = loadFromStorage('lastActivity', 0);
+    const now = Date.now();
+    const inactiveTime = now - savedActivity;
+    const tenMinutes = 10 * 60 * 1000; // 10 minutos
+    
+    return inactiveTime < tenMinutes;
   };
 
   const requestBiometricAuth = async () => {
@@ -340,6 +354,7 @@ const MoneyControlApp = () => {
         if (credential) {
           setIsAuthenticated(true);
           setAuthError('');
+          updateActivity();
           return true;
         }
       }
@@ -363,6 +378,7 @@ const MoneyControlApp = () => {
         setPinInput('');
         setIsSettingNewPin(false);
         setAuthError('');
+        updateActivity();
       } else {
         setAuthError('El PIN debe tener al menos 4 dígitos');
       }
@@ -373,6 +389,7 @@ const MoneyControlApp = () => {
         setShowPinInput(false);
         setPinInput('');
         setAuthError('');
+        updateActivity();
       } else {
         setAuthError('PIN incorrecto');
         setPinInput('');
@@ -385,22 +402,43 @@ const MoneyControlApp = () => {
     setShowPinInput(false);
     setPinInput('');
     setAuthError('');
+    setSessionExpired(true);
+    setSessionClosed(false);
+    // No limpiar lastActivity aquí para distinguir entre bloqueo manual y automático
+  };
+
+  const logoutApp = () => {
+    setIsAuthenticated(false);
+    setShowPinInput(false);
+    setPinInput('');
+    setAuthError('');
+    setSessionExpired(false);
+    setSessionClosed(true);
+    setShowLogoutConfirm(false);
+    // Limpiar completamente la sesión
+    saveToStorage('lastActivity', 0);
   };
 
   // Effect para el splash screen
   React.useEffect(() => {
     const timer = setTimeout(() => {
       setShowSplash(false);
-      // Intentar autenticación después del splash
+      // Verificar si la sesión sigue válida después del splash
       setTimeout(() => {
         if (!storedPin) {
+          // Primera vez - configurar PIN
           setIsSettingNewPin(true);
           setShowPinInput(true);
+        } else if (checkSessionValidity() && !sessionExpired && !sessionClosed) {
+          // Sesión válida - entrar directamente
+          setIsAuthenticated(true);
+          updateActivity();
         } else {
+          // Sesión expirada o cerrada - pedir autenticación
           requestBiometricAuth();
         }
       }, 100);
-    }, 1000);
+    }, 2000); // Cambiado a 2 segundos
 
     return () => clearTimeout(timer);
   }, []);
@@ -739,22 +777,81 @@ const MoneyControlApp = () => {
   // SPLASH SCREEN
   if (showSplash) {
     return (
-      <div className={'min-h-screen flex items-center justify-center ' + bgClass}>
-        <div className="text-center animate-pulse">
-          {/* Logo/Icono grande - letra G verde */}
-          <div className="w-24 h-24 mx-auto mb-4 rounded-2xl bg-green-500 flex items-center justify-center shadow-lg">
-            <span className="text-white text-4xl font-bold">G</span>
-          </div>
-          
-          {/* Nombre de la app */}
-          <h1 className={'text-2xl font-bold mb-2 ' + textClass}>Control de Dinero</h1>
-          <p className={textSecondaryClass + ' text-sm'}>Gestiona tus finanzas</p>
-          
-          {/* Spinner de carga */}
-          <div className="mt-6">
-            <div className={'w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mx-auto'}></div>
-          </div>
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-green-400 via-green-500 to-green-600 relative overflow-hidden">
+        {/* Elementos decorativos de fondo */}
+        <div className="absolute inset-0">
+          <div className="absolute top-10 left-10 w-20 h-20 bg-white bg-opacity-10 rounded-full animate-pulse"></div>
+          <div className="absolute top-32 right-16 w-12 h-12 bg-white bg-opacity-20 rounded-full animate-bounce delay-500"></div>
+          <div className="absolute bottom-40 left-20 w-16 h-16 bg-white bg-opacity-15 rounded-full animate-pulse delay-1000"></div>
+          <div className="absolute bottom-20 right-10 w-8 h-8 bg-white bg-opacity-25 rounded-full animate-bounce delay-700"></div>
         </div>
+        
+        <div className="text-center z-10">
+          {/* Logo/Icono grande con animaciones múltiples */}
+          <div className="relative mb-8">
+            {/* Anillo exterior que rota */}
+            <div className="absolute inset-0 w-32 h-32 mx-auto border-4 border-white border-opacity-30 rounded-2xl animate-spin" 
+                 style={{animationDuration: '8s'}}></div>
+            
+            {/* Anillo medio que pulsa */}
+            <div className="absolute inset-2 w-28 h-28 mx-auto bg-white bg-opacity-20 rounded-xl animate-pulse"></div>
+            
+            {/* Logo principal con efecto de escala */}
+            <div className="relative w-32 h-32 mx-auto bg-white rounded-2xl flex items-center justify-center shadow-2xl transform animate-bounce">
+              <span className="text-green-500 text-5xl font-bold animate-pulse">G</span>
+            </div>
+            
+            {/* Partículas flotantes alrededor del logo */}
+            <div className="absolute -top-2 -left-2 w-4 h-4 bg-white rounded-full animate-ping"></div>
+            <div className="absolute -top-2 -right-2 w-3 h-3 bg-white bg-opacity-70 rounded-full animate-ping delay-300"></div>
+            <div className="absolute -bottom-2 -left-2 w-3 h-3 bg-white bg-opacity-70 rounded-full animate-ping delay-500"></div>
+            <div className="absolute -bottom-2 -right-2 w-4 h-4 bg-white rounded-full animate-ping delay-700"></div>
+          </div>
+          
+          {/* Nombre de la app con animación de aparición */}
+          <div className="animate-fade-in-up">
+            <h1 className="text-4xl font-bold text-white mb-2 animate-pulse">Control de Dinero</h1>
+            <p className="text-white text-opacity-90 text-lg mb-8">Gestiona tus finanzas</p>
+          </div>
+          
+          {/* Barra de progreso animada */}
+          <div className="w-64 mx-auto bg-white bg-opacity-30 rounded-full h-2 mb-4 overflow-hidden">
+            <div className="h-full bg-white rounded-full animate-progress"></div>
+          </div>
+          
+          <p className="text-white text-opacity-80 text-sm animate-pulse">Cargando...</p>
+        </div>
+
+        {/* Estilos CSS para animaciones personalizadas */}
+        <style jsx>{`
+          @keyframes fade-in-up {
+            from {
+              opacity: 0;
+              transform: translateY(30px);
+            }
+            to {
+              opacity: 1;
+              transform: translateY(0);
+            }
+          }
+          
+          @keyframes progress {
+            from {
+              width: 0%;
+            }
+            to {
+              width: 100%;
+            }
+          }
+          
+          .animate-fade-in-up {
+            animation: fade-in-up 1s ease-out;
+          }
+          
+          .animate-progress {
+            animation: progress 2s ease-in-out;
+          }
+        `}</style>
       </div>
     );
   }
@@ -771,11 +868,17 @@ const MoneyControlApp = () => {
                 <span className="text-white text-2xl font-bold">G</span>
               </div>
               <h2 className={'text-xl font-bold ' + textClass}>
-                {isSettingNewPin ? 'Configurar PIN' : 'Desbloquear App'}
+                {isSettingNewPin ? 'Configurar PIN' : 
+                 sessionExpired ? 'Sesión Expirada' : 
+                 sessionClosed ? 'Sesión Cerrada' : 'Desbloquear App'}
               </h2>
               <p className={textSecondaryClass + ' text-sm mt-2'}>
                 {isSettingNewPin ? 
                   'Crea un PIN de seguridad para proteger tu información' : 
+                  sessionExpired ?
+                  'Tu sesión ha expirado por inactividad. Ingresa tu PIN para continuar.' :
+                  sessionClosed ?
+                  'Sesión cerrada voluntariamente. Ingresa tus credenciales para acceder.' :
                   'Ingresa tu PIN para acceder a la aplicación'
                 }
               </p>
@@ -824,7 +927,7 @@ const MoneyControlApp = () => {
                     {isSettingNewPin ? 'Configurar PIN' : 'Desbloquear'}
                   </button>
 
-                  {!isSettingNewPin && (
+                  {!isSettingNewPin && !sessionExpired && !sessionClosed && (
                     <button
                       onClick={requestBiometricAuth}
                       className={'w-full p-3 border-2 border-blue-500 text-blue-500 rounded-lg font-medium hover:bg-blue-50 ' + 
@@ -1904,30 +2007,102 @@ const MoneyControlApp = () => {
         {/* Security Settings */}
         <div className="mb-6">
           <div className={cardClass + ' rounded-lg shadow-sm p-4'}>
-            <h3 className={'font-semibold ' + textClass + ' mb-3'}>Configuración de Seguridad</h3>
-            <div className="space-y-2">
+            <div className="flex items-center gap-3 mb-4">
+              <div className={'w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-purple-600 flex items-center justify-center'}>
+                <Shield size={16} className="text-white" />
+              </div>
+              <h3 className={'font-semibold ' + textClass}>Configuración de Seguridad</h3>
+            </div>
+            
+            <div className="space-y-1">
               <button
                 onClick={() => {
                   setIsSettingNewPin(true);
                   setShowPinInput(true);
                   setIsAuthenticated(false);
                 }}
-                className={'w-full p-2 text-left text-sm ' + textSecondaryClass + ' hover:' + textClass + ' transition-colors'}
+                className={'w-full p-3 rounded-lg text-left flex items-center gap-3 ' + 
+                  (isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-50') + ' transition-colors group'
+                }
               >
-                🔑 Cambiar PIN
+                <div className={'w-8 h-8 rounded-lg bg-gradient-to-br from-green-500 to-green-600 flex items-center justify-center group-hover:scale-105 transition-transform'}>
+                  <Key size={14} className="text-white" />
+                </div>
+                <div>
+                  <div className={'font-medium ' + textClass}>Cambiar PIN</div>
+                  <div className={'text-xs ' + textSecondaryClass}>Actualizar código de seguridad</div>
+                </div>
               </button>
+
               <button
                 onClick={lockApp}
-                className={'w-full p-2 text-left text-sm ' + textSecondaryClass + ' hover:' + textClass + ' transition-colors'}
+                className={'w-full p-3 rounded-lg text-left flex items-center gap-3 ' + 
+                  (isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-50') + ' transition-colors group'
+                }
               >
-                🔒 Bloquear ahora
+                <div className={'w-8 h-8 rounded-lg bg-gradient-to-br from-orange-500 to-orange-600 flex items-center justify-center group-hover:scale-105 transition-transform'}>
+                  <Lock size={14} className="text-white" />
+                </div>
+                <div>
+                  <div className={'font-medium ' + textClass}>Bloquear Ahora</div>
+                  <div className={'text-xs ' + textSecondaryClass}>Bloqueo temporal de la app</div>
+                </div>
               </button>
-              <div className={'text-xs ' + textSecondaryClass + ' pt-2 border-t ' + borderClass}>
-                Auto-bloqueo: 10 minutos de inactividad
-              </div>
+
+              <button
+                onClick={() => setShowLogoutConfirm(true)}
+                className={'w-full p-3 rounded-lg text-left flex items-center gap-3 ' + 
+                  (isDark ? 'hover:bg-gray-700' : 'hover:bg-gray-50') + ' transition-colors group'
+                }
+              >
+                <div className={'w-8 h-8 rounded-lg bg-gradient-to-br from-red-500 to-red-600 flex items-center justify-center group-hover:scale-105 transition-transform'}>
+                  <LogOut size={14} className="text-white" />
+                </div>
+                <div>
+                  <div className={'font-medium ' + textClass}>Cerrar Sesión</div>
+                  <div className={'text-xs ' + textSecondaryClass}>Cierre completo y seguro</div>
+                </div>
+              </button>
+            </div>
+
+            <div className={'text-xs ' + textSecondaryClass + ' pt-3 mt-3 border-t ' + borderClass + ' flex items-center gap-2'}>
+              <Settings size={12} />
+              <span>Auto-bloqueo: 10 minutos de inactividad</span>
             </div>
           </div>
         </div>
+
+        {/* Modal de confirmación de cierre de sesión */}
+        {showLogoutConfirm && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+            <div className={cardClass + ' rounded-xl p-6 max-w-sm w-full shadow-2xl'}>
+              <div className="text-center mb-6">
+                <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-red-100 flex items-center justify-center">
+                  <LogOut size={24} className="text-red-600" />
+                </div>
+                <h3 className={'text-lg font-bold ' + textClass + ' mb-2'}>Cerrar Sesión</h3>
+                <p className={textSecondaryClass + ' text-sm'}>
+                  ¿Estás seguro que quieres cerrar la sesión? Tendrás que ingresar tu PIN o usar biometría para volver a acceder.
+                </p>
+              </div>
+              
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setShowLogoutConfirm(false)}
+                  className={'flex-1 p-3 border ' + borderClass + ' rounded-lg ' + textClass + ' font-medium hover:bg-gray-50 transition-colors'}
+                >
+                  Cancelar
+                </button>
+                <button
+                  onClick={logoutApp}
+                  className="flex-1 p-3 bg-red-600 hover:bg-red-700 text-white rounded-lg font-medium transition-colors"
+                >
+                  Cerrar Sesión
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Transactions List */}
         <div className={cardClass + ' rounded-lg shadow-sm p-4'}>
