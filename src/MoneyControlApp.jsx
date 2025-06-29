@@ -97,6 +97,11 @@ const MoneyControlApp = () => {
     category: ''
   });
   
+  // Estados para PWA Installation
+  const [deferredPrompt, setDeferredPrompt] = useState(null);
+  const [showInstallBanner, setShowInstallBanner] = useState(false);
+  const [installDismissed, setInstallDismissed] = useState(false);
+  
   // Estados para gestionar categorías
   const [newCategoryName, setNewCategoryName] = useState('');
   const [categoryTypeToEdit, setCategoryTypeToEdit] = useState('income');
@@ -606,6 +611,39 @@ const MoneyControlApp = () => {
     // La persistencia se maneja en el useEffect
   };
 
+  // Funciones para PWA Installation
+  const handleInstallApp = async () => {
+    if (!deferredPrompt) return;
+    
+    try {
+      // Mostrar el prompt nativo del navegador
+      deferredPrompt.prompt();
+      
+      // Esperar la respuesta del usuario
+      const { outcome } = await deferredPrompt.userChoice;
+      
+      if (outcome === 'accepted') {
+        console.log('Usuario aceptó instalar la PWA');
+      } else {
+        console.log('Usuario rechazó instalar la PWA');
+      }
+      
+      // Limpiar el prompt y ocultar banner
+      setDeferredPrompt(null);
+      setShowInstallBanner(false);
+      
+    } catch (error) {
+      console.error('Error al intentar instalar:', error);
+      setShowInstallBanner(false);
+    }
+  };
+
+  const dismissInstallBanner = () => {
+    setShowInstallBanner(false);
+    setInstallDismissed(true);
+    setDeferredPrompt(null);
+  };
+
   // Componente del Menú Inferior (movido antes de su uso)
   const BottomNavigation = () => {
     const menuItems = [
@@ -739,6 +777,38 @@ const MoneyControlApp = () => {
   React.useEffect(() => {
     saveToStorage('customCategories', customCategories);
   }, [customCategories]);
+
+  // Effect para manejar PWA Installation
+  React.useEffect(() => {
+    const handleBeforeInstallPrompt = (e) => {
+      // Prevenir que el navegador muestre automáticamente el prompt
+      e.preventDefault();
+      
+      // Guardar el evento para usarlo después
+      setDeferredPrompt(e);
+      
+      // Mostrar nuestro banner personalizado (solo si no se ha descartado)
+      if (!installDismissed) {
+        setShowInstallBanner(true);
+      }
+    };
+
+    const handleAppInstalled = () => {
+      console.log('PWA instalada exitosamente');
+      setShowInstallBanner(false);
+      setDeferredPrompt(null);
+    };
+
+    // Agregar listeners
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    window.addEventListener('appinstalled', handleAppInstalled);
+
+    // Cleanup
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      window.removeEventListener('appinstalled', handleAppInstalled);
+    };
+  }, [installDismissed]);
 
   // Clases CSS dinámicas
   const bgClass = isDark ? 'bg-gray-900' : 'bg-gray-50';
@@ -1139,6 +1209,52 @@ const MoneyControlApp = () => {
         
         {/* Menú Inferior también en Reportes */}
         <BottomNavigation />
+        
+        {/* Banner de Instalación PWA */}
+        {showInstallBanner && deferredPrompt && (
+          <div className="fixed bottom-20 left-4 right-4 z-50">
+            <div className="max-w-md mx-auto">
+              <div className={cardClass + ' rounded-xl shadow-2xl border border-blue-200 p-4'}>
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center flex-shrink-0">
+                    <span className="text-white text-lg font-bold">📱</span>
+                  </div>
+                  
+                  <div className="flex-1 min-w-0">
+                    <h3 className={'text-sm font-semibold ' + textClass + ' mb-1'}>
+                      ¿Instalar Control de Dinero?
+                    </h3>
+                    <p className={'text-xs ' + textSecondaryClass + ' mb-3'}>
+                      Obtén acceso más rápido y una mejor experiencia instalando la app en tu dispositivo.
+                    </p>
+                    
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handleInstallApp}
+                        className="flex-1 bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium py-2 px-3 rounded-lg transition-colors"
+                      >
+                        Instalar
+                      </button>
+                      <button
+                        onClick={dismissInstallBanner}
+                        className={'flex-1 border ' + borderClass + ' ' + textClass + ' text-xs font-medium py-2 px-3 rounded-lg hover:bg-gray-50 transition-colors'}
+                      >
+                        Ahora no
+                      </button>
+                    </div>
+                  </div>
+                  
+                  <button
+                    onClick={dismissInstallBanner}
+                    className={'text-gray-400 hover:text-gray-600 flex-shrink-0 p-1'}
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -1245,6 +1361,52 @@ const MoneyControlApp = () => {
         
         {/* Menú Inferior también en Categorías */}
         <BottomNavigation />
+        
+        {/* Banner de Instalación PWA */}
+        {showInstallBanner && deferredPrompt && (
+          <div className="fixed bottom-20 left-4 right-4 z-50">
+            <div className="max-w-md mx-auto">
+              <div className={cardClass + ' rounded-xl shadow-2xl border border-blue-200 p-4'}>
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center flex-shrink-0">
+                    <span className="text-white text-lg font-bold">📱</span>
+                  </div>
+                  
+                  <div className="flex-1 min-w-0">
+                    <h3 className={'text-sm font-semibold ' + textClass + ' mb-1'}>
+                      ¿Instalar Control de Dinero?
+                    </h3>
+                    <p className={'text-xs ' + textSecondaryClass + ' mb-3'}>
+                      Obtén acceso más rápido y una mejor experiencia instalando la app en tu dispositivo.
+                    </p>
+                    
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handleInstallApp}
+                        className="flex-1 bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium py-2 px-3 rounded-lg transition-colors"
+                      >
+                        Instalar
+                      </button>
+                      <button
+                        onClick={dismissInstallBanner}
+                        className={'flex-1 border ' + borderClass + ' ' + textClass + ' text-xs font-medium py-2 px-3 rounded-lg hover:bg-gray-50 transition-colors'}
+                      >
+                        Ahora no
+                      </button>
+                    </div>
+                  </div>
+                  
+                  <button
+                    onClick={dismissInstallBanner}
+                    className={'text-gray-400 hover:text-gray-600 flex-shrink-0 p-1'}
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -1479,6 +1641,52 @@ const MoneyControlApp = () => {
         
         {/* Menú Inferior también en Movimientos */}
         <BottomNavigation />
+        
+        {/* Banner de Instalación PWA */}
+        {showInstallBanner && deferredPrompt && (
+          <div className="fixed bottom-20 left-4 right-4 z-50">
+            <div className="max-w-md mx-auto">
+              <div className={cardClass + ' rounded-xl shadow-2xl border border-blue-200 p-4'}>
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center flex-shrink-0">
+                    <span className="text-white text-lg font-bold">📱</span>
+                  </div>
+                  
+                  <div className="flex-1 min-w-0">
+                    <h3 className={'text-sm font-semibold ' + textClass + ' mb-1'}>
+                      ¿Instalar Control de Dinero?
+                    </h3>
+                    <p className={'text-xs ' + textSecondaryClass + ' mb-3'}>
+                      Obtén acceso más rápido y una mejor experiencia instalando la app en tu dispositivo.
+                    </p>
+                    
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handleInstallApp}
+                        className="flex-1 bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium py-2 px-3 rounded-lg transition-colors"
+                      >
+                        Instalar
+                      </button>
+                      <button
+                        onClick={dismissInstallBanner}
+                        className={'flex-1 border ' + borderClass + ' ' + textClass + ' text-xs font-medium py-2 px-3 rounded-lg hover:bg-gray-50 transition-colors'}
+                      >
+                        Ahora no
+                      </button>
+                    </div>
+                  </div>
+                  
+                  <button
+                    onClick={dismissInstallBanner}
+                    className={'text-gray-400 hover:text-gray-600 flex-shrink-0 p-1'}
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -1672,6 +1880,52 @@ const MoneyControlApp = () => {
         
         {/* Menú Inferior también en Formulario */}
         <BottomNavigation />
+        
+        {/* Banner de Instalación PWA */}
+        {showInstallBanner && deferredPrompt && (
+          <div className="fixed bottom-20 left-4 right-4 z-50">
+            <div className="max-w-md mx-auto">
+              <div className={cardClass + ' rounded-xl shadow-2xl border border-blue-200 p-4'}>
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center flex-shrink-0">
+                    <span className="text-white text-lg font-bold">📱</span>
+                  </div>
+                  
+                  <div className="flex-1 min-w-0">
+                    <h3 className={'text-sm font-semibold ' + textClass + ' mb-1'}>
+                      ¿Instalar Control de Dinero?
+                    </h3>
+                    <p className={'text-xs ' + textSecondaryClass + ' mb-3'}>
+                      Obtén acceso más rápido y una mejor experiencia instalando la app en tu dispositivo.
+                    </p>
+                    
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handleInstallApp}
+                        className="flex-1 bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium py-2 px-3 rounded-lg transition-colors"
+                      >
+                        Instalar
+                      </button>
+                      <button
+                        onClick={dismissInstallBanner}
+                        className={'flex-1 border ' + borderClass + ' ' + textClass + ' text-xs font-medium py-2 px-3 rounded-lg hover:bg-gray-50 transition-colors'}
+                      >
+                        Ahora no
+                      </button>
+                    </div>
+                  </div>
+                  
+                  <button
+                    onClick={dismissInstallBanner}
+                    className={'text-gray-400 hover:text-gray-600 flex-shrink-0 p-1'}
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -2290,6 +2544,52 @@ const MoneyControlApp = () => {
 
         {/* Menú Inferior */}
         <BottomNavigation />
+
+        {/* Banner de Instalación PWA */}
+        {showInstallBanner && deferredPrompt && (
+          <div className="fixed bottom-20 left-4 right-4 z-50">
+            <div className="max-w-md mx-auto">
+              <div className={cardClass + ' rounded-xl shadow-2xl border border-blue-200 p-4'}>
+                <div className="flex items-start gap-3">
+                  <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center flex-shrink-0">
+                    <span className="text-white text-lg font-bold">📱</span>
+                  </div>
+                  
+                  <div className="flex-1 min-w-0">
+                    <h3 className={'text-sm font-semibold ' + textClass + ' mb-1'}>
+                      ¿Instalar Control de Dinero?
+                    </h3>
+                    <p className={'text-xs ' + textSecondaryClass + ' mb-3'}>
+                      Obtén acceso más rápido y una mejor experiencia instalando la app en tu dispositivo.
+                    </p>
+                    
+                    <div className="flex gap-2">
+                      <button
+                        onClick={handleInstallApp}
+                        className="flex-1 bg-blue-500 hover:bg-blue-600 text-white text-xs font-medium py-2 px-3 rounded-lg transition-colors"
+                      >
+                        Instalar
+                      </button>
+                      <button
+                        onClick={dismissInstallBanner}
+                        className={'flex-1 border ' + borderClass + ' ' + textClass + ' text-xs font-medium py-2 px-3 rounded-lg hover:bg-gray-50 transition-colors'}
+                      >
+                        Ahora no
+                      </button>
+                    </div>
+                  </div>
+                  
+                  <button
+                    onClick={dismissInstallBanner}
+                    className={'text-gray-400 hover:text-gray-600 flex-shrink-0 p-1'}
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Modal de confirmación de logout */}
         {showLogoutConfirm && (
