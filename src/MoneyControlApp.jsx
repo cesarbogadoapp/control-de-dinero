@@ -489,20 +489,59 @@ const MoneyControlApp = () => {
   };
 
   const requestBiometricAuth = async () => {
+    // Solo mostrar el modal, NO activar automáticamente
     setShowBiometricModal(true);
     setAuthError('');
   };
 
-  const handleBiometricScan = () => {
+  const handleBiometricScan = async () => {
     setBiometricScanning(true);
     setAuthError('');
     
-    setTimeout(() => {
-      setIsAuthenticated(true);
-      setShowBiometricModal(false);
+    try {
+      // USAR TU WEBAUTHN REAL EXISTENTE
+      // Configuración para WebAuthn real del dispositivo
+      const challenge = new Uint8Array(32);
+      crypto.getRandomValues(challenge);
+      
+      const credential = await navigator.credentials.create({
+        publicKey: {
+          challenge,
+          rp: { name: "Control de Dinero" },
+          user: {
+            id: new TextEncoder().encode("user"),
+            name: "usuario", 
+            displayName: "Usuario"
+          },
+          pubKeyCredParams: [{ alg: -7, type: "public-key" }],
+          authenticatorSelection: {
+            authenticatorAttachment: "platform",
+            userVerification: "required"
+          },
+          timeout: 30000
+        }
+      });
+
+      if (credential) {
+        setIsAuthenticated(true);
+        setShowBiometricModal(false);
+        setBiometricScanning(false);
+        setSessionExpired(false);
+        setSessionClosed(false);
+        updateActivity();
+      }
+      
+    } catch (error) {
       setBiometricScanning(false);
-      updateActivity();
-    }, 2500);
+      if (error.name === 'NotAllowedError') {
+        setAuthError('Autenticación biométrica cancelada');
+      } else if (error.name === 'NotSupportedError') {
+        setAuthError('Biometría no soportada en este dispositivo');
+      } else {
+        setAuthError('Error en la autenticación biométrica');
+      }
+      console.error('Biometric auth error:', error);
+    }
   };
 
   const handlePinSubmit = () => {
@@ -1717,7 +1756,7 @@ const MoneyControlApp = () => {
                     {isSettingNewPin ? 'Huella Dactilar' : 'Usar Huella Dactilar'}
                   </div>
                   <div className={'text-sm ' + textSecondaryClass}>
-                    {isSettingNewPin ? 'Disponible después de configurar PIN' : 'Autenticación biométrica'}
+                    {isSettingNewPin ? 'Disponible después de configurar PIN' : 'Autenticación biométrica del sistema'}
                   </div>
                 </div>
               </div>
@@ -1905,11 +1944,11 @@ const MoneyControlApp = () => {
         <div className="text-center mb-6 p-4">
           <div className="flex items-center justify-between mb-2">
             <button
-              onClick={lockApp}
+              onClick={() => setShowLogoutConfirm(true)}
               className={cardClass + ' p-2 rounded-lg shadow-sm transition-all duration-200 hover:scale-105'}
-              title="Bloquear aplicación"
+              title="Cerrar sesión"
             >
-              🔒
+              <LogOut size={20} className="text-red-500" />
             </button>
             <h1 className={'text-2xl font-bold ' + textClass}>Control de Dinero</h1>
             <button
