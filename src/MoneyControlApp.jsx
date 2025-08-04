@@ -1416,6 +1416,34 @@ const MoneyControlApp = () => {
     const filteredTransactions = getFilteredTransactions();
     const availableCategories = [...new Set(transactions.map(t => t.category))];
 
+    // Calcular totales de las transacciones filtradas
+  const calculateFilteredTotals = () => {
+    const totals = {
+      income: 0,
+      expense: 0,
+      loan: 0,
+      count: filteredTransactions.length
+    };
+    
+    filteredTransactions.forEach(transaction => {
+      if (transaction.type === 'income') {
+        totals.income += transaction.amount;
+      } else if (transaction.type === 'expense') {
+        totals.expense += transaction.amount;
+      } else if (transaction.type === 'loan') {
+        totals.loan += transaction.amount;
+      }
+    });
+    
+    // Calcular balance neto
+    totals.net = totals.income - totals.expense - totals.loan;
+    
+    return totals;
+  };
+
+  const filteredTotals = calculateFilteredTotals();
+  const hasActiveFilters = filters.startDate || filters.endDate || filters.type || filters.category;
+
     return (
       <div className={'min-h-screen ' + bgClass + ' p-4 pb-20'}> {/* Agregar padding bottom */}
         <div className="max-w-md mx-auto">
@@ -1519,14 +1547,95 @@ const MoneyControlApp = () => {
             </div>
           )}
 
-          {/* Contador de resultados */}
-          {(filters.startDate || filters.endDate || filters.type || filters.category) && (
-            <div className={cardClass + ' rounded-lg shadow-sm p-3 mb-4 text-center'}>
-              <span className={textSecondaryClass + ' text-sm'}>
-                Mostrando {filteredTransactions.length} de {transactions.length} transacciones
-              </span>
+        {/* Resumen de resultados filtrados */}
+        {hasActiveFilters && (
+          <div className={cardClass + ' rounded-lg shadow-sm p-4 mb-4'}>
+            <div className="text-center mb-3">
+              <h3 className={'font-semibold ' + textClass + ' mb-1'}>
+                Resumen de Filtros Aplicados
+              </h3>
+              <p className={'text-sm ' + textSecondaryClass}>
+                {filteredTotals.count} de {transactions.length} transacciones
+              </p>
             </div>
-          )}
+            
+            {/* Balance neto del filtro */}
+            <div className="text-center mb-4 p-3 rounded-lg" 
+                 style={{backgroundColor: isDark ? (filteredTotals.net >= 0 ? '#10b98120' : '#ef444420') : (filteredTotals.net >= 0 ? '#dcfce7' : '#fee2e2')}}>
+              <div className={'text-xs ' + textSecondaryClass + ' mb-1'}>Balance Neto Filtrado</div>
+              <div className={'text-xl font-bold ' + (filteredTotals.net >= 0 ? 'text-green-600' : 'text-red-600')}>
+                {formatCurrency(filteredTotals.net)}
+              </div>
+            </div>
+
+            {/* Desglose por tipo */}
+            <div className="grid grid-cols-3 gap-3 text-center">
+              {filteredTotals.income > 0 && (
+                <div className="p-2 rounded-lg bg-green-50" style={{backgroundColor: isDark ? '#10b98120' : '#dcfce7'}}>
+                  <div className={'text-xs ' + textSecondaryClass + ' mb-1'}>Entradas</div>
+                  <div className="font-bold text-green-600 text-sm">
+                    +{formatCurrency(filteredTotals.income)}
+                  </div>
+                  <div className={'text-xs ' + textSecondaryClass}>
+                    {filteredTransactions.filter(t => t.type === 'income').length} mov.
+                  </div>
+                </div>
+              )}
+              
+              {filteredTotals.expense > 0 && (
+                <div className="p-2 rounded-lg bg-red-50" style={{backgroundColor: isDark ? '#ef444420' : '#fee2e2'}}>
+                  <div className={'text-xs ' + textSecondaryClass + ' mb-1'}>Salidas</div>
+                  <div className="font-bold text-red-600 text-sm">
+                    -{formatCurrency(filteredTotals.expense)}
+                  </div>
+                  <div className={'text-xs ' + textSecondaryClass}>
+                    {filteredTransactions.filter(t => t.type === 'expense').length} mov.
+                  </div>
+                </div>
+              )}
+              
+              {filteredTotals.loan > 0 && (
+                <div className="p-2 rounded-lg bg-orange-50" style={{backgroundColor: isDark ? '#ea580c20' : '#fed7aa'}}>
+                  <div className={'text-xs ' + textSecondaryClass + ' mb-1'}>Préstamos</div>
+                  <div className="font-bold text-orange-600 text-sm">
+                    {formatCurrency(filteredTotals.loan)}
+                  </div>
+                  <div className={'text-xs ' + textSecondaryClass}>
+                    {filteredTransactions.filter(t => t.type === 'loan').length} mov.
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Mostrar filtros activos */}
+            <div className="mt-3 pt-3 border-t" style={{borderColor: isDark ? '#374151' : '#e5e7eb'}}>
+              <div className={'text-xs ' + textSecondaryClass + ' mb-2'}>Filtros activos:</div>
+              <div className="flex flex-wrap gap-1">
+                {filters.startDate && (
+                  <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs">
+                    Desde: {formatDisplayDate(filters.startDate)}
+                  </span>
+                )}
+                {filters.endDate && (
+                  <span className="px-2 py-1 bg-blue-100 text-blue-800 rounded-full text-xs">
+                    Hasta: {formatDisplayDate(filters.endDate)}
+                  </span>
+                )}
+                {filters.type && (
+                  <span className="px-2 py-1 bg-purple-100 text-purple-800 rounded-full text-xs">
+                    {filters.type === 'income' ? 'Entradas' : 
+                     filters.type === 'expense' ? 'Salidas' : 'Préstamos'}
+                  </span>
+                )}
+                {filters.category && (
+                  <span className="px-2 py-1 bg-green-100 text-green-800 rounded-full text-xs">
+                    {filters.category}
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
 
           <div className="space-y-3">
             {filteredTransactions.length === 0 ? (
